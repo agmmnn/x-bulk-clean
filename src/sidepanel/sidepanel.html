@@ -1044,7 +1044,10 @@
       overflow-y: auto;
       padding: var(--sp-3);
       position: relative;
+      display: flex;
+      flex-direction: column;
     }
+    .scroll-body > * { flex-shrink: 0; }
 
     .error-banner {
       margin-bottom: var(--sp-3);
@@ -1113,7 +1116,12 @@
     .btn-secondary:disabled { opacity: 0.45; cursor: not-allowed; }
 
     /* Idle View */
-    .idle-view { display: grid; gap: var(--sp-3); }
+    .idle-view {
+      flex: 1 0 auto;
+      display: flex;
+      flex-direction: column;
+      gap: var(--sp-3);
+    }
     .idle-view[hidden] { display: none; }
 
     /* Cozy pastel mascot hero card */
@@ -1233,28 +1241,49 @@
       font-size: var(--fs-meta);
     }
 
-    /* First-open empty illustration (replaces void until a scan exists) */
+    /* First-open empty illustration (centers cleanly in available space) */
     .first-scan-empty {
-      padding: var(--sp-4) var(--sp-3);
-      display: grid;
-      justify-items: center;
-      gap: var(--sp-2);
+      flex: 1 0 auto;
+      min-height: 180px;
+      padding: var(--sp-5) var(--sp-4);
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      gap: 14px;
       text-align: center;
+      position: relative;
+    }
+    .first-scan-empty::before {
+      content: "";
+      position: absolute;
+      width: 240px;
+      height: 150px;
+      border-radius: 999px;
+      background:
+        radial-gradient(circle at 35% 45%, rgba(99, 102, 241, 0.12), transparent 62%),
+        radial-gradient(circle at 68% 58%, rgba(236, 72, 153, 0.10), transparent 60%);
+      filter: blur(16px);
+      pointer-events: none;
+      transform: translateY(-14px);
     }
     .first-scan-empty[hidden] { display: none; }
     .first-scan-empty img {
-      width: 188px;
-      max-width: 78%;
+      position: relative;
+      width: 224px;
+      max-width: 82%;
       height: auto;
       display: block;
+      filter: drop-shadow(0 8px 18px rgba(15, 23, 42, 0.10));
     }
     .first-scan-empty p {
+      position: relative;
       margin: 0;
-      max-width: 260px;
-      font-size: var(--fs-meta);
-      color: var(--ink-meta);
-      line-height: 1.45;
-      text-wrap: pretty;
+      max-width: 268px;
+      font-size: 13px;
+      color: var(--ink-secondary);
+      line-height: 1.5;
+      text-wrap: balance;
     }
 
     /* Quiet destructive text link under sticky Scan CTA (neutral gray by default, colored on hover/focus) */
