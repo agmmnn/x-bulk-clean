@@ -2,6 +2,11 @@
 
 All notable changes are documented here. Releases before `1.4.0` are not reconstructed in detail.
 
+## [1.5.1] - 2026-11-24 ✨
+
+- 🎨 Minor Side Panel UI polish (compact Settings header & mascot sizing).
+- 🐛 Fixed mascot background transparency in Dark Mode.
+
 ## [1.5.0] - 2026-11-24 ✨
 
 ### Added 🚀

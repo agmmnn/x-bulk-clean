@@ -257,6 +257,7 @@
       gap: var(--sp-2);
     }
     .brand { display: flex; align-items: center; gap: var(--sp-2); min-width: 0; }
+    .brand[hidden] { display: none; }
     .brand-logo {
       width: 28px;
       height: 28px;
@@ -1242,8 +1243,8 @@
     }
     .first-scan-empty[hidden] { display: none; }
     .first-scan-empty img {
-      width: 154px;
-      max-width: 65%;
+      width: 188px;
+      max-width: 78%;
       height: auto;
       display: block;
     }
@@ -1612,29 +1613,22 @@
       padding-bottom: var(--sp-3);
     }
     .settings-view[hidden] { display: none; }
-    .settings-nav {
-      padding: var(--sp-2) var(--sp-3);
-      display: flex;
-      align-items: center;
-      gap: var(--sp-2);
-      border-top: 1px solid var(--border);
-      background: var(--bg);
-    }
-    .settings-nav[hidden] { display: none; }
     .back-btn {
-      min-block-size: 30px;
+      min-block-size: 32px;
       padding: 0 var(--sp-2) 0 4px;
       display: inline-flex;
       align-items: center;
-      gap: 4px;
+      gap: 6px;
       border: 0;
       border-radius: var(--r-btn);
       background: transparent;
       color: var(--ink);
-      font-size: var(--fs-body);
-      font-weight: 700;
+      font-size: var(--fs-title);
+      font-weight: 750;
+      letter-spacing: -0.02em;
       cursor: pointer;
     }
+    .back-btn[hidden] { display: none; }
     .back-btn:hover { background: var(--surface); }
     .settings-group { display: grid; gap: var(--sp-2); }
     .settings-group-label {
@@ -1997,22 +1991,19 @@
     <!-- STICKY TOP CHROME -->
     <div class="top-chrome">
       <header class="header">
-        <div class="brand">
+        <div id="headerBrand" class="brand">
           <img class="brand-logo" src="../icons/logo.png" alt="">
           <span class="brand-name">X Bulk Clean</span>
         </div>
+        <button id="settingsBackBtn" class="back-btn" type="button" aria-label="Back from settings" hidden>
+          <svg class="icon" aria-hidden="true"><use href="#i-arrow-left"/></svg>
+          <span>Settings</span>
+        </button>
         <div class="header-actions">
           <button id="openHistory" class="icon-btn" type="button" aria-label="Open job history" title="Job history"><svg class="icon" aria-hidden="true"><use href="#i-history"/></svg></button>
           <button id="openSettingsBtn" class="icon-btn" type="button" aria-label="Settings" title="Settings"><svg class="icon" aria-hidden="true"><use href="#i-settings"/></svg><span id="settingsNewDot" class="icon-btn-dot" hidden></span></button>
         </div>
       </header>
-
-      <div id="settingsNav" class="settings-nav" hidden>
-        <button id="settingsBackBtn" class="back-btn" type="button" aria-label="Back from settings">
-          <svg class="icon" aria-hidden="true"><use href="#i-arrow-left"/></svg>
-          <span>Settings</span>
-        </button>
-      </div>
 
       <!-- Account Slot (always above tabs: Rich in Idle, smoothly morphs to Compact in Scan/Review) -->
       <div id="accountSlot" class="account-slot" aria-live="polite">
@@ -2331,7 +2322,7 @@
           </div>
         </div>
 
-        <div class="settings-about">X Bulk Clean v1.5.0 · Processed locally in your browser.</div>
+        <div class="settings-about">X Bulk Clean v1.5.1 · Processed locally in your browser.</div>
       </section>
     </main>
 

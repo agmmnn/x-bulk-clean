@@ -1456,9 +1456,10 @@ function openSettings(scrollToId = null) {
   settingsOpen = true;
   $('openSettingsBtn').classList.add('active');
   $('settingsNewDot').hidden = true;
-  const ver = chrome.runtime.getManifest?.().version || '1.5.0';
+  const ver = chrome.runtime.getManifest?.().version || '1.5.1';
   chrome.storage.local.set({ lastSeenSettingsVersion: ver }).catch(() => {});
-  $('settingsNav').hidden = false;
+  $('headerBrand').hidden = true;
+  $('settingsBackBtn').hidden = false;
   $('categoryTabs').hidden = true;
   $('otherTabWarning').hidden = true;
   $('statusBar').hidden = true;
@@ -1484,7 +1485,8 @@ function closeSettings() {
   if (!settingsOpen) return;
   settingsOpen = false;
   $('openSettingsBtn').classList.remove('active');
-  $('settingsNav').hidden = true;
+  $('headerBrand').hidden = false;
+  $('settingsBackBtn').hidden = true;
   $('settingsView').hidden = true;
   $('categoryTabs').hidden = false;
   $('noAccountEmpty').hidden = !!activeAccount?.username;
@@ -2640,7 +2642,7 @@ async function initialize() {
   const defSpeedRadio = document.querySelector(`input[name="defaultSpeed"][value="${defaultCleanupSpeed}"]`);
   if (defSpeedRadio) defSpeedRadio.checked = true;
 
-  const currentVer = chrome.runtime.getManifest?.().version || '1.5.0';
+  const currentVer = chrome.runtime.getManifest?.().version || '1.5.1';
   const hasNewSettings = settings.lastSeenSettingsVersion !== currentVer;
   const hasNewChangelog = settings.lastSeenChangelogVersion !== currentVer;
   $('settingsNewDot').hidden = !hasNewSettings;
@@ -2719,7 +2721,7 @@ document.addEventListener('DOMContentLoaded', () => {
     $('reviewBanner').hidden = true;
   });
   $('settingsChangelogLink').addEventListener('click', () => {
-    const ver = chrome.runtime.getManifest?.().version || '1.5.0';
+    const ver = chrome.runtime.getManifest?.().version || '1.5.1';
     chrome.storage.local.set({ lastSeenChangelogVersion: ver, lastSeenSettingsVersion: ver });
     $('changelogNewPill').hidden = true;
     $('settingsNewDot').hidden = true;
