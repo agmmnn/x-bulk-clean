@@ -11,29 +11,48 @@ X Bulk Clean: Delete Tweets, Likes & Unfollow for Twitter
 Bulk delete tweets, replies, likes & reposts, mass unfollow on X (Twitter), and export CSV backups locally. Free & open source.
 
 **Detailed Description**
-X Bulk Clean is a free, open-source Chrome extension that runs entirely inside your browser to help you clean up and manage your X (formerly Twitter) account. It requires no license keys, subscriptions, external backends, or payment.
+Clean up your X (formerly Twitter) account safely, selectively, and completely free — right from Chrome's Side Panel.
 
-Key features:
-- Delete posts and replies in bulk with visual confirmation
-- Preview posts, replies, or reposts in Chrome's side panel and choose exactly what to delete
-- Filter scanned results by text, keywords, and dates, and use advanced selection controls (Select All, Invert, Select None)
-- Undo reposts and remove likes
-- Follow followers or verified followers in bulk
-- Bulk unfollow accounts you follow
-- Prevent overlapping cleanup jobs and monitor active jobs from an on-page status panel
-- Persistent, account-aware job history showing dates, times, counts, and affected records
-- Export activity backups as CSV before performing destructive actions
-- Optional performance mode to hide tweet-media during scans to save resources
+X Bulk Clean is an open-source extension that runs 100% locally in your browser. There are no subscriptions, no tweet limits, no API keys, and no external servers. Your account data never leaves your device.
 
-How to use:
-1. Open X (Twitter) in your active Chrome tab and ensure you are logged in.
-2. Click the extension icon to open the X Bulk Clean side panel.
-3. Choose an action (e.g., Delete posts/replies, Remove likes, Follow/Unfollow).
-4. For Delete/Repost scans, review the list of scanned items, filter them if needed, select/deselect items, and confirm.
-5. Watch the automated cleanup run directly on the page, or stop/pause it at any time.
+WHAT YOU CAN CLEAN
+• Tweets — Scan your timeline and delete selected posts in bulk
+• Replies — Clean up replies only, or scan posts + replies in a single pass
+• Likes — Review and unlike old posts
+• Reposts — Undo retweets/reposts in bulk
+• Following — Mass unfollow accounts, with filters for accounts that don't follow back or have no profile photo
 
-Important safety note:
-Bulk cleanups are destructive and cannot be reversed by the extension. We highly recommend exporting a CSV backup of your scanned records first and starting with a small batch of items.
+PREVIEW & SELECT BEFORE YOU DELETE
+Unlike blind mass-deleters, X Bulk Clean lets you run a read-only scan first and inspect every item live in the side panel before anything is touched:
+• Quick date presets (Last 30 days, Last 90 days, Older than 1 year) plus custom From/To date ranges
+• Search by keyword, @handle, or bio
+• Filter by minimum likes, media only, or posts with links
+• Sort by Newest, Oldest, or Most liked
+• Fast selection with Select All, Invert, Shift+Click range select, and keyboard shortcuts
+
+BUILT-IN SAFETY & BACKUPS
+• Never-Unfollow Whitelist — Protect important accounts with one click so they are always skipped during unfollow
+• Automatic CSV Backups — Download a local CSV copy of your selected tweets, likes, reposts, or following list before deletion
+• Safe & Fast Speed Modes — Built-in pacing and Rate Limit Guard help avoid temporary X limits
+• Pause, Resume & Retry — Pause or stop any job at any time, track live ETA, and retry failed items with one click
+• Persistent Job History — Review past cleanups per account and export CSV reports anytime
+
+DESIGNED TO STAY OUT OF YOUR WAY
+• Opens directly in Chrome's Side Panel alongside X
+• Light, Dark, and System themes
+• Optional Performance Mode hides photos and pauses videos during scans to keep Chrome fast
+
+HOW TO USE
+1. Sign in to x.com (or twitter.com) in Chrome.
+2. Click the X Bulk Clean icon in your toolbar to open the Side Panel.
+3. Pick a tab (Tweets, Replies, Likes, Reposts, or Following) and click Scan.
+4. Filter and select the items you want to remove, keep CSV backup checked, and confirm.
+
+PRIVACY & OPEN SOURCE
+X Bulk Clean collects zero user data and makes zero requests to third-party servers. Everything runs locally in your browser.
+Source code & issue tracker: https://github.com/agmmnn/x-bulk-clean
+
+Note: Deleting tweets, likes, reposts, or unfollowing accounts on X is permanent and cannot be undone by the extension. Exporting a CSV backup before running large cleanups is strongly recommended.
 
 **Category**
 Productivity
@@ -90,7 +109,7 @@ All data (scanned posts, history logs, CSV backups, settings) is processed and s
 ## Privacy Policy
 
 **Privacy Policy URL**
-`https://github.com/agmmnn/x-bulk-clean/blob/main/PRIVACY.md`
+`https://github.com/agmmnn/x-bulk-clean/blob/master/PRIVACY.md`
 
 ---
 
@@ -122,5 +141,6 @@ X Bulk Clean Contributors
 
 | Version | Date | Changes | Status |
 |---------|------|---------|--------|
-| 1.5.0 | 2026-11-24 | Direct Side Panel launch, unified 5-tab flow (added Likes), rich morphing profile card, live scan streaming, never-unfollow whitelist, theme switch (System/Light/Dark), bottom-sheet confirmation with Safe/Fast speed & auto-CSV backup, full-panel Settings, and SEO-optimized store metadata. | Ready |
+| 1.5.0 | 2026-11-24 | Direct Side Panel launch, unified 5-tab flow (added Likes), rich morphing profile card, live scan streaming, never-unfollow whitelist, theme switch (System/Light/Dark), bottom-sheet confirmation with Safe/Fast speed & auto-CSV backup, full-panel Settings, and SEO-optimized store metadata. | Released |
+| 1.4.0 | 2026-07-11 | Preview & Select in Chrome's Side Panel, reply scan modes, selected-only unfollow, persistent job history with CSV exports, Performance mode, and Rate Limit Guard. | Published |
 | 1.3.0 | 2026-07-11 | Reorganized codebase to clean directory structure with a dedicated `src/` directory. Fixed loading bar animation behavior on scan stops and job completion. | Published |

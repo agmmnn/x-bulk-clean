@@ -11,7 +11,7 @@
   <a href="https://chromewebstore.google.com/detail/bcpkijoolaciolfegopiaifmoedbolgg">
     <img src="https://img.shields.io/chrome-web-store/users/bcpkijoolaciolfegopiaifmoedbolgg" alt="Chrome Web Store users">
   </a>
-  <a href="https://github.com/agmmnn/x-bulk-clean/blob/main/LICENSE">
+  <a href="https://github.com/agmmnn/x-bulk-clean/blob/master/LICENSE">
     <img src="https://img.shields.io/github/license/agmmnn/x-bulk-clean" alt="MIT License">
   </a>
 </p>
@@ -24,23 +24,17 @@
 
 ## Features
 
-- Delete posts and replies
-- Preview tweets, replies, or reposts in Chrome's side panel and choose exactly what to delete or remove
-- Preview accounts from your Following page and unfollow only the selected accounts
-- Choose a one-pass reply scan: clearly identified replies only, or all posts and replies from `/with_replies` for manual review of possible orphan replies
-- Filter scanned results by text and date, then select all, none, or invert the selection
-- Remove likes and reposts
-- Follow followers or verified followers
-- Bulk unfollow accounts
-- Show the currently active X account before an action starts
-- Confirm the account and action before every automated run
-- Monitor or stop an active job from an on-page status panel
-- Prevent overlapping cleanup jobs
-- Keep persistent, account-aware job history with dates, times, counts, and affected records
-- Review, export, or remove individual jobs from the full history page
-- Export activity backups as CSV
-- Optional performance mode that reduces tweet-media rendering during automated runs
-- No analytics, payment service, or external backend
+- **Direct Side Panel workflow** with 5 unified tabs: **Tweets**, **Replies**, **Likes**, **Reposts**, and **Following**
+- **Preview & Select before deleting**: read-only scans stream items live into the side panel so you can review and choose exactly what to remove
+- **Flexible reply scanning**: scan clearly identified replies only, or **Posts + replies** in a single pass for manual review of possible orphan replies
+- **Smart filters & sorting**: quick date chips (**All time**, **Last 30d**, **Last 90d**, **Older than 1 year**), custom **From/To** dates, keyword/`@author`/bio search, **Min. likes**, **Media only**, **Has links**, Following filters (**Doesn't follow back**, **No profile photo**), and sorting (**Newest**, **Oldest**, **Most liked**)
+- **Fast selection**: tri-state Select All, Invert, `Shift+Click` range select, and keyboard shortcuts (`Space`, `Ctrl/Cmd+A`)
+- **Never-unfollow whitelist**: protect accounts directly from any Following row or manage protected `@handles` in Settings so they are skipped during unfollow
+- **Safety & CSV backups**: pre-selected CSV backup download before deletion, **Safe / Fast** speed modes with built-in Rate Limit Guard, typed confirmation for bulk actions, and overlap locking
+- **Live control & recovery**: Pause, Resume, or Stop active jobs at any time, view live ETA, and **Retry failed** items with one click
+- **Persistent Job History**: account-aware history with dates, counts, affected records, individual CSV downloads, and one-click **Download all CSV** export
+- **Themes & Performance mode**: System / Light / Dark theme support plus an optional Performance mode that hides photos and pauses videos while running
+- **100% local & open source**: no analytics, subscriptions, API keys, or external backend
 
 ## Install from Chrome Web Store
 
@@ -59,7 +53,7 @@ The easiest way to install X Bulk Clean:
 5. Select the `src` folder inside the cloned repository.
 6. Sign in to X, open the extension, and choose an action.
 
-Preview & Select mode requires Chrome 116 or newer.
+X Bulk Clean requires Chrome 116 or newer (for the Side Panel API).
 
 ## Development & Packaging
 
