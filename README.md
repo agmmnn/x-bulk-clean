@@ -16,9 +16,8 @@
   </a>
 </p>
 
-<p align="center">
-  <a href="https://github.com/agmmnn/x-bulk-clean">github.com/agmmnn/x-bulk-clean</a>
-</p>
+> [!NOTE]
+> Set X's display language to **English** before running cleanups (**Settings → Accessibility, display, and languages → Languages → Display language**).
 
 **X Bulk Clean** is a Chrome extension for quickly cleaning up your X account. Bulk delete tweets, replies, reposts, and likes, or mass unfollow accounts without managing items one by one. It runs directly in your browser for a simple, fast, and privacy-friendly cleanup experience.
 
@@ -36,6 +35,11 @@
 - **Themes & Performance mode**: System / Light / Dark theme support plus an optional Performance mode that hides photos and pauses videos while running
 - **100% local & open source**: no analytics, subscriptions, API keys, or external backend
 
+## Requirements
+
+- **Google Chrome 116 or newer** (required for the Side Panel API)
+- **X display language set to English** — some actions (such as deleting posts/replies and detecting replies) currently rely on English UI labels on X. You can switch this temporarily under **Settings → Accessibility, display, and languages → Languages → Display language** on X.
+
 ## Install from Chrome Web Store
 
 The easiest way to install X Bulk Clean:
@@ -52,8 +56,6 @@ The easiest way to install X Bulk Clean:
 4. Click **Load unpacked** (top-left corner).
 5. Select the `src` folder inside the cloned repository.
 6. Sign in to X, open the extension, and choose an action.
-
-X Bulk Clean requires Chrome 116 or newer (for the Side Panel API).
 
 ## Development & Packaging
 
