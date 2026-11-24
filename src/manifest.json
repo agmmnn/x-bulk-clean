@@ -1,9 +1,10 @@
 {
   "manifest_version": 3,
   "minimum_chrome_version": "116",
-  "name": "X Bulk Clean",
-  "version": "1.4.0",
-  "description": "Free bulk cleanup tools for X. Delete posts/replies, remove likes/reposts, manage follows, and export CSV backups locally.",
+  "name": "X Bulk Clean: Delete Tweets, Likes & Unfollow for Twitter",
+  "short_name": "X Bulk Clean",
+  "version": "1.5.0",
+  "description": "Bulk delete tweets, replies, likes & reposts, mass unfollow on X (Twitter), and export CSV backups locally. Free & open source.",
   "author": "X Bulk Clean contributors",
   "icons": {
     "16": "icons/icon16.png",
@@ -33,7 +34,7 @@
     "default_path": "sidepanel/sidepanel.html"
   },
   "action": {
-    "default_popup": "popup/popup.html",
+    "default_title": "Open X Bulk Clean",
     "default_icon": {
       "16": "icons/icon16.png",
       "48": "icons/icon48.png",

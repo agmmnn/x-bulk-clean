@@ -306,6 +306,9 @@ async function confirmDelete() {
 }
 
 document.addEventListener('DOMContentLoaded', async () => {
+  $('historyRateLink')?.addEventListener('click', () => {
+    chrome.storage.local.set({ reviewPromptStatus: 'clicked' });
+  });
   $('historySearch').addEventListener('input', renderHistory);
   $('downloadAll').addEventListener('click', downloadAllHistory);
   $('clearAll').addEventListener('click', () => openDeleteDialog('all'));

@@ -1,14 +1,14 @@
 # Chrome Web Store Listing — X Bulk Clean
 
-> Last Updated: 2026-07-11
+> Last Updated: 2026-11-24
 
 ## Store Listing
 
 **Extension Name**
-X Bulk Clean
+X Bulk Clean: Delete Tweets, Likes & Unfollow for Twitter
 
 **Short Description**
-Free bulk cleanup tools for X. Delete posts/replies, remove likes/reposts, manage follows, and export CSV backups locally.
+Bulk delete tweets, replies, likes & reposts, mass unfollow on X (Twitter), and export CSV backups locally. Free & open source.
 
 **Detailed Description**
 X Bulk Clean is a free, open-source Chrome extension that runs entirely inside your browser to help you clean up and manage your X (formerly Twitter) account. It requires no license keys, subscriptions, external backends, or payment.
@@ -27,7 +27,7 @@ Key features:
 
 How to use:
 1. Open X (Twitter) in your active Chrome tab and ensure you are logged in.
-2. Click the extension icon to open the popup or the "Preview & Select" side panel.
+2. Click the extension icon to open the X Bulk Clean side panel.
 3. Choose an action (e.g., Delete posts/replies, Remove likes, Follow/Unfollow).
 4. For Delete/Repost scans, review the list of scanned items, filter them if needed, select/deselect items, and confirm.
 5. Watch the automated cleanup run directly on the page, or stop/pause it at any time.
@@ -122,4 +122,5 @@ X Bulk Clean Contributors
 
 | Version | Date | Changes | Status |
 |---------|------|---------|--------|
-| 1.3.0 | 2026-07-11 | Reorganized codebase to clean directory structure with a dedicated `src/` directory. Fixed loading bar animation behavior on scan stops and job completion. | Draft |
+| 1.5.0 | 2026-11-24 | Direct Side Panel launch, unified 5-tab flow (added Likes), rich morphing profile card, live scan streaming, never-unfollow whitelist, theme switch (System/Light/Dark), bottom-sheet confirmation with Safe/Fast speed & auto-CSV backup, full-panel Settings, and SEO-optimized store metadata. | Ready |
+| 1.3.0 | 2026-07-11 | Reorganized codebase to clean directory structure with a dedicated `src/` directory. Fixed loading bar animation behavior on scan stops and job completion. | Published |

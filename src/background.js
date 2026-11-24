@@ -3,12 +3,20 @@
 
 const X_URL = /^https:\/\/(x\.com|twitter\.com)\//;
 
+function configurePanelBehavior() {
+  chrome.sidePanel.setPanelBehavior({ openPanelOnActionClick: true }).catch(() => {});
+}
+
+configurePanelBehavior();
+chrome.runtime.onInstalled.addListener(configurePanelBehavior);
+chrome.runtime.onStartup.addListener(configurePanelBehavior);
+
 async function updateSidePanel(tabId, url) {
   try {
     await chrome.sidePanel.setOptions({
       tabId,
       path: 'sidepanel/sidepanel.html',
-      enabled: X_URL.test(url || '')
+      enabled: true
     });
     if (!X_URL.test(url || '')) {
       const stored = await chrome.storage.local.get(['activePreviewSession']);
