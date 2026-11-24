@@ -141,6 +141,7 @@ X Bulk Clean Contributors
 
 | Version | Date | Changes | Status |
 |---------|------|---------|--------|
+| 1.5.2 | 2026-11-24 | Added Side Panel notice when X display language is not set to English (with quick link to X language settings) and documented the requirement in README. | Released |
 | 1.5.1 | 2026-11-24 | Minor Side Panel UI polish (compact Settings header & mascot sizing) and fixed Dark Mode mascot transparency. | Released |
 | 1.5.0 | 2026-11-24 | Direct Side Panel launch, unified 5-tab flow (added Likes), rich morphing profile card, live scan streaming, never-unfollow whitelist, theme switch (System/Light/Dark), bottom-sheet confirmation with Safe/Fast speed & auto-CSV backup, full-panel Settings, and SEO-optimized store metadata. | Released |
 | 1.4.0 | 2026-07-11 | Preview & Select in Chrome's Side Panel, reply scan modes, selected-only unfollow, persistent job history with CSV exports, Performance mode, and Rate Limit Guard. | Published |

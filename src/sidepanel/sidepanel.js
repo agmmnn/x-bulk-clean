@@ -21,6 +21,7 @@ let renderedCount = RENDER_BATCH;
 let whitelist = new Set();
 let profileMetaCache = {};
 let settingsOpen = false;
+let langWarningDismissed = false;
 let defaultAutoCsv = true;
 let defaultCleanupSpeed = 'safe';
 let currentSort = 'newest';
@@ -313,12 +314,15 @@ async function detectAccount(tab) {
           if (followersLink) followers = parseCount(followersLink.textContent);
         }
 
+        const rawLang = (document.documentElement?.lang || '').trim().toLowerCase();
+
         return {
           username,
           displayName,
           avatarUrl,
           verified,
           bannerUrl,
+          lang: rawLang,
           stats: { posts, following, followers }
         };
       }
@@ -391,6 +395,46 @@ function setAccountIssue(text = '') {
   }
 }
 
+function isNonEnglishLang(lang) {
+  const l = (lang || '').trim().toLowerCase();
+  return Boolean(l && l !== 'en' && !l.startsWith('en-'));
+}
+
+function formatLanguageName(lang) {
+  try {
+    const code = (lang || '').trim();
+    if (!code) return '';
+    return new Intl.DisplayNames(['en'], { type: 'language' }).of(code) || code.toUpperCase();
+  } catch (_) {
+    return (lang || '').toUpperCase();
+  }
+}
+
+function syncLangBanner() {
+  const banner = $('langBanner');
+  if (!banner) return;
+  const ready = !!activeAccount?.username;
+  const nonEn = ready && isNonEnglishLang(activeAccount.lang);
+  if (ready && !nonEn) langWarningDismissed = false;
+  banner.hidden = settingsOpen || !nonEn || langWarningDismissed;
+  if (!banner.hidden) {
+    const label = formatLanguageName(activeAccount.lang);
+    const p = $('langBannerText');
+    p.replaceChildren();
+    if (label) {
+      p.append('X is set to ');
+      const langStrong = document.createElement('strong');
+      langStrong.textContent = label;
+      p.append(langStrong, ". Switch X's display language to ");
+    } else {
+      p.append("Switch X's display language to ");
+    }
+    const enStrong = document.createElement('strong');
+    enStrong.textContent = 'English';
+    p.append(enStrong, ' so tweet and reply cleanup works properly.');
+  }
+}
+
 function syncAccountChrome() {
   const ready = !!activeAccount?.username;
   $('accountSlot').hidden = settingsOpen;
@@ -398,6 +442,7 @@ function syncAccountChrome() {
   $('profileCard').hidden = !ready;
   $('profileCard').classList.toggle('compact', viewMode !== 'idle');
   $('idleBottomBar').hidden = settingsOpen || viewMode !== 'idle' || !ready;
+  syncLangBanner();
 }
 
 function renderAccount(account, hasXTab = false) {
@@ -461,6 +506,17 @@ async function openX() {
     if (existing.windowId != null) await chrome.windows.update(existing.windowId, { focused: true });
   } else {
     await chrome.tabs.create({ url: 'https://x.com/home' });
+  }
+}
+
+async function openXLanguageSettings() {
+  const url = 'https://x.com/settings/language';
+  const existing = await findActiveXTab();
+  if (existing) {
+    await chrome.tabs.update(existing.id, { url, active: true });
+    if (existing.windowId != null) await chrome.windows.update(existing.windowId, { focused: true });
+  } else {
+    await chrome.tabs.create({ url });
   }
 }
 
@@ -1456,7 +1512,7 @@ function openSettings(scrollToId = null) {
   settingsOpen = true;
   $('openSettingsBtn').classList.add('active');
   $('settingsNewDot').hidden = true;
-  const ver = chrome.runtime.getManifest?.().version || '1.5.1';
+  const ver = chrome.runtime.getManifest?.().version || '1.5.2';
   chrome.storage.local.set({ lastSeenSettingsVersion: ver }).catch(() => {});
   $('headerBrand').hidden = true;
   $('settingsBackBtn').hidden = false;
@@ -2642,7 +2698,7 @@ async function initialize() {
   const defSpeedRadio = document.querySelector(`input[name="defaultSpeed"][value="${defaultCleanupSpeed}"]`);
   if (defSpeedRadio) defSpeedRadio.checked = true;
 
-  const currentVer = chrome.runtime.getManifest?.().version || '1.5.1';
+  const currentVer = chrome.runtime.getManifest?.().version || '1.5.2';
   const hasNewSettings = settings.lastSeenSettingsVersion !== currentVer;
   const hasNewChangelog = settings.lastSeenChangelogVersion !== currentVer;
   $('settingsNewDot').hidden = !hasNewSettings;
@@ -2703,6 +2759,11 @@ document.addEventListener('DOMContentLoaded', () => {
   $('openSettingsBtn').addEventListener('click', () => (settingsOpen ? closeSettings() : openSettings()));
   $('settingsBackBtn').addEventListener('click', closeSettings);
   $('openXButton').addEventListener('click', openX);
+  $('openLangSettings').addEventListener('click', openXLanguageSettings);
+  $('langBannerDismiss').addEventListener('click', () => {
+    langWarningDismissed = true;
+    syncLangBanner();
+  });
   $('previewPerformance').addEventListener('change', () => {
     chrome.storage.local.set({ performanceMode: $('previewPerformance').checked });
   });
@@ -2721,7 +2782,7 @@ document.addEventListener('DOMContentLoaded', () => {
     $('reviewBanner').hidden = true;
   });
   $('settingsChangelogLink').addEventListener('click', () => {
-    const ver = chrome.runtime.getManifest?.().version || '1.5.1';
+    const ver = chrome.runtime.getManifest?.().version || '1.5.2';
     chrome.storage.local.set({ lastSeenChangelogVersion: ver, lastSeenSettingsVersion: ver });
     $('changelogNewPill').hidden = true;
     $('settingsNewDot').hidden = true;

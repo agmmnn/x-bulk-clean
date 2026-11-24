@@ -2,6 +2,11 @@
 
 All notable changes are documented here. Releases before `1.4.0` are not reconstructed in detail.
 
+## [1.5.2] - 2026-11-24 ✨
+
+- 🌐 Added a dismissable notice in the Side Panel when X's display language isn't set to English, with a one-click link to X language settings.
+- 📝 Noted the English display language requirement in the README.
+
 ## [1.5.1] - 2026-11-24 ✨
 
 - 🎨 Minor Side Panel UI polish (compact Settings header & mascot sizing).

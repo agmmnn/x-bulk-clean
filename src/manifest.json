@@ -3,7 +3,7 @@
   "minimum_chrome_version": "116",
   "name": "X Bulk Clean: Delete Tweets, Likes & Unfollow for Twitter",
   "short_name": "X Bulk Clean",
-  "version": "1.5.1",
+  "version": "1.5.2",
   "description": "Bulk delete tweets, replies, likes & reposts, mass unfollow on X (Twitter), and export CSV backups locally. Free & open source.",
   "author": "X Bulk Clean contributors",
   "icons": {
