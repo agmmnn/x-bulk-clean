@@ -1,5 +1,5 @@
 const X_URL = /^https:\/\/(x\.com|twitter\.com)\//;
-const TYPES = ['tweets', 'replies', 'likes', 'reposts', 'unfollow'];
+const TYPES = ['tweets', 'replies', 'reposts', 'media', 'likes', 'unfollow'];
 const RENDER_BATCH = 120;
 const SESSION_KEY = 'xbcPanelSessionV2';
 
@@ -21,7 +21,9 @@ let renderedCount = RENDER_BATCH;
 let whitelist = new Set();
 let profileMetaCache = {};
 let settingsOpen = false;
-let langWarningDismissed = false;
+let accountRetryTimer = null;
+let accountRetryIndex = 0;
+let lastDetectStatus = null; // null | 'loading' | 'logged_out' | 'error'
 let defaultAutoCsv = true;
 let defaultCleanupSpeed = 'safe';
 let currentSort = 'newest';
@@ -31,6 +33,7 @@ let tabCache = Object.fromEntries(TYPES.map(t => [t, {
   scannedAt: null,
   scanDurationSec: null,
   replyScope: 'fast',
+  mediaScope: 'photo',
   scanState: 'idle' // 'idle' | 'paused' | 'stopped' | 'done'
 }]));
 
@@ -47,10 +50,14 @@ let sheetMode = 'selected'; // 'selected' | 'bulkAll' | 'retry'
 let requireTypedDelete = false;
 let lastDoneResult = null; // { jobId, type, succeeded, failedItems, backup }
 
-const isPermanentType = (type = currentType) => type === 'tweets' || type === 'replies';
+const isPermanentType = (type = currentType) => type === 'tweets' || type === 'replies' || type === 'media';
 const isFollowingType = (type = currentType) => type === 'unfollow';
+const isMediaType = (type = currentType) => type === 'media';
 const currentCache = (type = currentType) => tabCache[type];
 const selectedReplyScope = () => document.querySelector('input[name="replyScope"]:checked')?.value || 'fast';
+const selectedMediaScope = () => document.querySelector('input[name="mediaScope"]:checked')?.value || 'photo';
+const activeMediaScope = () => (viewMode === 'idle' ? selectedMediaScope() : (currentCache('media')?.mediaScope || selectedMediaScope()));
+const isPhotoMediaView = (type = currentType) => type === 'media' && activeMediaScope() === 'photo';
 const selectedSpeed = () => document.querySelector('input[name="cleanupSpeed"]:checked')?.value || 'safe';
 
 function typeNoun(type, count = 2) {
@@ -59,6 +66,10 @@ function typeNoun(type, count = 2) {
   if (type === 'likes') return one ? 'like' : 'likes';
   if (type === 'reposts') return one ? 'repost' : 'reposts';
   if (type === 'replies') return one ? 'reply' : 'replies';
+  if (type === 'media') {
+    const kind = activeMediaScope() === 'video' ? 'video' : 'photo';
+    return one ? kind : `${kind}s`;
+  }
   return one ? 'tweet' : 'tweets';
 }
 
@@ -129,6 +140,7 @@ function scheduleSessionSave() {
           scannedAt: c.scannedAt,
           scanDurationSec: c.scanDurationSec ?? null,
           replyScope: c.replyScope,
+          mediaScope: c.mediaScope || 'photo',
           scanState: c.scanState
         };
       }
@@ -167,6 +179,7 @@ async function restoreSession() {
             scannedAt: saved.tabCache[t].scannedAt ?? null,
             scanDurationSec: saved.tabCache[t].scanDurationSec ?? null,
             replyScope: saved.tabCache[t].replyScope || 'fast',
+            mediaScope: saved.tabCache[t].mediaScope || 'photo',
             scanState: saved.tabCache[t].scanState || 'idle'
           };
         }
@@ -228,8 +241,22 @@ function renderWhitelistTags() {
 async function findActiveXTab() {
   const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
   if (tab?.url && X_URL.test(tab.url)) return tab;
+
+  const pickBest = (list) => {
+    if (!list.length) return null;
+    const isLogin = (t) => /\/(i\/flow\/)?login\b/i.test(t.url || '');
+    return list.find(t => !t.discarded && !isLogin(t))
+      || list.find(t => !t.discarded)
+      || list.find(t => !isLogin(t))
+      || list[0];
+  };
+
+  const inWin = await chrome.tabs.query({ currentWindow: true, url: ['https://x.com/*', 'https://twitter.com/*'] });
+  const winMatch = pickBest(inWin);
+  if (winMatch) return winMatch;
+
   const all = await chrome.tabs.query({ url: ['https://x.com/*', 'https://twitter.com/*'] });
-  return all[0] || null;
+  return pickBest(all);
 }
 
 function waitForTabLoad(tabId, timeoutMs = 15000) {
@@ -255,45 +282,110 @@ async function detectAccount(tab) {
       target: { tabId: tab.id },
       func: () => {
         const parseCount = (raw) => {
-          const s = (raw || '').trim().replace(/,/g, '');
+          const s = (raw || '').trim().replace(/\u00a0/g, ' ');
           if (!s) return null;
-          const m = s.match(/(\d+(?:\.\d+)?)\s*([KMB])?/i);
+          const m = s.match(/(\d+(?:[.,]\d+)*)\s*(K|M|B|Mn|Mr|mil|Mio|Tsd|万|億|천|만)?/i);
           if (!m) return null;
-          const num = parseFloat(m[1]);
-          const u = (m[2] || '').toUpperCase();
-          if (u === 'K') return Math.round(num * 1000);
-          if (u === 'M') return Math.round(num * 1000000);
-          if (u === 'B') return Math.round(num * 1000000000);
+          let numStr = m[1];
+          const unit = (m[2] || '').toLowerCase();
+          if (unit) {
+            // Decimal comma or dot when followed by unit (e.g. "1,2 B" or "5.6K")
+            numStr = numStr.replace(',', '.');
+          } else if (/^\d{1,3}([.,]\d{3})+$/.test(numStr)) {
+            numStr = numStr.replace(/[.,]/g, '');
+          } else {
+            numStr = numStr.replace(/,/g, '');
+          }
+          const num = parseFloat(numStr);
+          if (Number.isNaN(num)) return null;
+          if (unit === 'k' || unit === 'mil' || unit === 'tsd' || unit === '천') return Math.round(num * 1000);
+          if (unit === 'b') {
+            const lang = (document.documentElement?.lang || '').toLowerCase();
+            return Math.round(num * (lang.startsWith('tr') ? 1000 : 1000000000));
+          }
+          if (unit === '万' || unit === '만') return Math.round(num * 10000);
+          if (unit === 'm' || unit === 'mn' || unit === 'mio') return Math.round(num * 1000000);
+          if (unit === 'mr') return Math.round(num * 1000000000);
+          if (unit === '億') return Math.round(num * 100000000);
           return Math.round(num);
         };
 
+        const readInitialStateUser = () => {
+          try {
+            for (const sc of document.scripts) {
+              const t = sc.textContent || '';
+              const idx = t.indexOf('window.__INITIAL_STATE__=');
+              if (idx === -1) continue;
+              const start = idx + 'window.__INITIAL_STATE__='.length;
+              const end = t.indexOf(';window.__META_DATA__', start);
+              const raw = end !== -1 ? t.slice(start, end) : t.slice(start).replace(/;?\s*$/, '');
+              const obj = JSON.parse(raw);
+              const uid = obj?.session?.user_id;
+              const u = uid ? obj?.entities?.users?.entities?.[uid] : null;
+              if (u?.screen_name) return u;
+            }
+          } catch (_) {}
+          return null;
+        };
+
+        const extractAvatarTestIdHandle = (root) => {
+          const el = root?.querySelector?.('[data-testid^="UserAvatar-Container-"]');
+          const tid = el?.getAttribute('data-testid') || '';
+          const h = tid.replace(/^UserAvatar-Container-/, '');
+          return /^[A-Za-z0-9_]{1,15}$/.test(h) ? h : null;
+        };
+
+        const reserved = /^(home|explore|notifications|messages|i|search|compose|settings|login|signup)$/i;
         const link = document.querySelector('[data-testid="AppTabBar_Profile_Link"]') ||
           document.querySelector('a[aria-label="Profile"]') ||
           document.querySelector('nav[role="navigation"] a[href*="/"][role="link"][aria-label*="Profile" i]');
         const switcher = document.querySelector('[data-testid="SideNav_AccountSwitcher_Button"]');
+        const dashBtn = document.querySelector('[data-testid="DashButton_ProfileIcon_Link"]');
         const href = link?.getAttribute('href') || '';
         const hrefHandle = href.replace(/^\//, '').split('/')[0];
         const texts = Array.from(switcher?.querySelectorAll('span') || [])
           .filter(span => span.children.length === 0)
           .map(span => (span.textContent || '').trim()).filter(Boolean);
-        const textHandle = texts.find(text => /^@[A-Za-z0-9_]{1,15}$/.test(text));
-        const username = (/^[A-Za-z0-9_]{1,15}$/.test(hrefHandle) &&
-          !/^(home|explore|notifications|messages|i)$/i.test(hrefHandle))
-          ? hrefHandle : textHandle?.slice(1);
-        if (!username) return null;
+        const textHandle = texts.find(text => /^@[A-Za-z0-9_]{1,15}$/.test(text))?.slice(1) || null;
+        const switcherAvatarHandle = extractAvatarTestIdHandle(switcher);
+        const dashAvatarHandle = extractAvatarTestIdHandle(dashBtn);
+        const composerRoot = document.querySelector('[data-testid="primaryColumn"] [data-testid="tweetTextarea_0"]')?.closest('[data-testid="cellInnerDiv"], form, div[role="region"]');
+        const composerAvatarHandle = extractAvatarTestIdHandle(composerRoot);
 
-        const avatar = switcher?.querySelector('img[src]') || link?.querySelector('img[src]');
-        const rawAvatar = avatar?.currentSrc || avatar?.src || '';
+        const domUsername =
+          (/^[A-Za-z0-9_]{1,15}$/.test(hrefHandle) && !reserved.test(hrefHandle)) ? hrefHandle
+            : switcherAvatarHandle
+              || dashAvatarHandle
+              || textHandle
+              || composerAvatarHandle
+              || null;
+
+        const hasLoginPrompt = !!document.querySelector('[data-testid="loginButton"], a[href="/i/flow/login"]');
+        const stateUser = readInitialStateUser();
+        const stateMatchesDom = stateUser && (!domUsername || stateUser.screen_name.toLowerCase() === domUsername.toLowerCase());
+
+        const username = domUsername || (!hasLoginPrompt && stateUser?.screen_name ? stateUser.screen_name : null);
+        if (!username) {
+          const hasNav = !!document.querySelector('nav[role="navigation"], [data-testid="primaryColumn"], [data-testid="BottomBar"]');
+          return { _status: (!hasLoginPrompt && !hasNav) ? 'loading' : 'logged_out' };
+        }
+
+        const avatar = switcher?.querySelector('img[src]') || dashBtn?.querySelector('img[src]') || link?.querySelector('img[src]');
+        const rawAvatar = avatar?.currentSrc || avatar?.src || (stateMatchesDom ? stateUser.profile_image_url_https : '') || '';
         const avatarUrl = rawAvatar ? rawAvatar.replace(/_normal(\.[a-z]+)$/i, '_200x200$1') : '';
         const alt = (avatar?.alt || '').trim();
-        const displayName = alt && !/^(image|profile photo)$/i.test(alt)
-          ? alt : texts.find(text => text !== `@${username}` && !text.startsWith('@') && text.length <= 60) || username;
+        const displayName =
+          (alt && !/^(image|profile photo)$/i.test(alt) ? alt : '')
+          || texts.find(text => text !== `@${username}` && !text.startsWith('@') && text.length <= 60)
+          || (stateMatchesDom ? stateUser.name : '')
+          || username;
 
-        let verified = !!switcher?.querySelector('[data-testid="icon-verified"]');
-        let bannerUrl = '';
-        let posts = null;
-        let following = null;
-        let followers = null;
+        let verified = !!switcher?.querySelector('[data-testid="icon-verified"]')
+          || Boolean(stateMatchesDom && (stateUser.is_blue_verified || stateUser.verified));
+        let bannerUrl = (stateMatchesDom && stateUser.profile_banner_url) || '';
+        let posts = (stateMatchesDom && typeof stateUser.statuses_count === 'number') ? stateUser.statuses_count : null;
+        let following = (stateMatchesDom && typeof stateUser.friends_count === 'number') ? stateUser.friends_count : null;
+        let followers = (stateMatchesDom && typeof stateUser.followers_count === 'number') ? stateUser.followers_count : null;
 
         const pathLower = (location.pathname || '').toLowerCase();
         const onOwnProfile = pathLower === `/${username.toLowerCase()}` || pathLower.startsWith(`/${username.toLowerCase()}/`);
@@ -301,20 +393,24 @@ async function detectAccount(tab) {
           const userNameBlock = document.querySelector('[data-testid="UserName"]');
           if (userNameBlock?.querySelector('[data-testid="icon-verified"]')) verified = true;
           const bannerImg = document.querySelector('a[href$="/header_photo"] img[src], img[src*="profile_banners"]');
-          if (bannerImg) bannerUrl = bannerImg.currentSrc || bannerImg.src || '';
+          if (bannerImg) bannerUrl = bannerImg.currentSrc || bannerImg.src || bannerUrl;
 
-          const headerBlock = document.querySelector('[data-testid="primaryColumn"] h2')?.parentElement;
-          const postMatch = (headerBlock?.textContent || '').match(/([\d,.]+\s*[KMB]?)\s*(posts|tweets)/i);
-          if (postMatch) posts = parseCount(postMatch[1]);
+          if (posts == null) {
+            const h2 = document.querySelector('[data-testid="primaryColumn"] h2');
+            const subline = h2?.parentElement?.querySelector('div[dir="auto"]:not(:has(h2))')
+              || Array.from(h2?.parentElement?.children || []).find(el => el !== h2 && /\d/.test(el.textContent || ''));
+            const parsedPosts = parseCount(subline?.textContent || '');
+            if (parsedPosts != null) posts = parsedPosts;
+          }
 
           const followingLink = document.querySelector(`a[href="/${username}/following" i] span, a[href$="/following"] span`);
-          if (followingLink) following = parseCount(followingLink.textContent);
+          const domFollowing = followingLink ? parseCount(followingLink.textContent) : null;
+          if (domFollowing != null) following = domFollowing;
 
           const followersLink = document.querySelector(`a[href="/${username}/verified_followers" i] span, a[href="/${username}/followers" i] span, a[href$="/verified_followers"] span, a[href$="/followers"] span`);
-          if (followersLink) followers = parseCount(followersLink.textContent);
+          const domFollowers = followersLink ? parseCount(followersLink.textContent) : null;
+          if (domFollowers != null) followers = domFollowers;
         }
-
-        const rawLang = (document.documentElement?.lang || '').trim().toLowerCase();
 
         return {
           username,
@@ -322,7 +418,6 @@ async function detectAccount(tab) {
           avatarUrl,
           verified,
           bannerUrl,
-          lang: rawLang,
           stats: { posts, following, followers }
         };
       }
@@ -347,8 +442,8 @@ async function detectAccount(tab) {
       scheduleSessionSave();
     }
     return info;
-  } catch (_) {
-    return null;
+  } catch (err) {
+    return { _status: 'error', _error: err?.message || 'Could not access X tab' };
   }
 }
 
@@ -395,44 +490,24 @@ function setAccountIssue(text = '') {
   }
 }
 
-function isNonEnglishLang(lang) {
-  const l = (lang || '').trim().toLowerCase();
-  return Boolean(l && l !== 'en' && !l.startsWith('en-'));
+function clearAccountRetry() {
+  if (accountRetryTimer) {
+    clearTimeout(accountRetryTimer);
+    accountRetryTimer = null;
+  }
+  accountRetryIndex = 0;
 }
 
-function formatLanguageName(lang) {
-  try {
-    const code = (lang || '').trim();
-    if (!code) return '';
-    return new Intl.DisplayNames(['en'], { type: 'language' }).of(code) || code.toUpperCase();
-  } catch (_) {
-    return (lang || '').toUpperCase();
-  }
-}
-
-function syncLangBanner() {
-  const banner = $('langBanner');
-  if (!banner) return;
-  const ready = !!activeAccount?.username;
-  const nonEn = ready && isNonEnglishLang(activeAccount.lang);
-  if (ready && !nonEn) langWarningDismissed = false;
-  banner.hidden = settingsOpen || !nonEn || langWarningDismissed;
-  if (!banner.hidden) {
-    const label = formatLanguageName(activeAccount.lang);
-    const p = $('langBannerText');
-    p.replaceChildren();
-    if (label) {
-      p.append('X is set to ');
-      const langStrong = document.createElement('strong');
-      langStrong.textContent = label;
-      p.append(langStrong, ". Switch X's display language to ");
-    } else {
-      p.append("Switch X's display language to ");
-    }
-    const enStrong = document.createElement('strong');
-    enStrong.textContent = 'English';
-    p.append(enStrong, ' so tweet and reply cleanup works properly.');
-  }
+function scheduleAccountRetry() {
+  if (accountRetryTimer || cleanupRunning || activeScanType) return;
+  const delays = [900, 1800, 3200, 5500];
+  if (accountRetryIndex >= delays.length) return;
+  const delay = delays[accountRetryIndex++];
+  accountRetryTimer = setTimeout(async () => {
+    accountRetryTimer = null;
+    if (cleanupRunning || activeScanType || activeAccount?.username) return;
+    await syncAccountStatus(true);
+  }, delay);
 }
 
 function syncAccountChrome() {
@@ -442,28 +517,37 @@ function syncAccountChrome() {
   $('profileCard').hidden = !ready;
   $('profileCard').classList.toggle('compact', viewMode !== 'idle');
   $('idleBottomBar').hidden = settingsOpen || viewMode !== 'idle' || !ready;
-  syncLangBanner();
 }
 
-function renderAccount(account, hasXTab = false) {
-  activeAccount = account;
-  const ready = !!account?.username;
+function renderAccount(accountResult, hasXTab = false) {
+  const ready = !!accountResult?.username;
+  activeAccount = ready ? accountResult : null;
+  lastDetectStatus = ready ? null : (accountResult?._status || (hasXTab ? 'logged_out' : null));
 
-  $('signedOutStrip').textContent = 'Not signed in';
+  if (ready) {
+    clearAccountRetry();
+  } else if (hasXTab && (lastDetectStatus === 'loading' || lastDetectStatus === 'logged_out')) {
+    scheduleAccountRetry();
+  }
+
+  $('signedOutStrip').textContent =
+    lastDetectStatus === 'loading' ? 'Waiting for X to load…'
+      : lastDetectStatus === 'error' ? 'Cannot access X tab'
+        : 'Not signed in';
   $('accountIssuePill').hidden = true;
   $('profileOnlineDot').style.background = '';
 
   if (ready) {
-    $('profileDisplayName').textContent = account.displayName || account.username;
-    $('profileHandle').textContent = `@${account.username}`;
-    $('profileVerified').hidden = !account.verified;
-    $('profileInitials').textContent = (account.displayName || account.username || 'X').slice(0, 2);
+    $('profileDisplayName').textContent = activeAccount.displayName || activeAccount.username;
+    $('profileHandle').textContent = `@${activeAccount.username}`;
+    $('profileVerified').hidden = !activeAccount.verified;
+    $('profileInitials').textContent = (activeAccount.displayName || activeAccount.username || 'X').slice(0, 2);
 
     const pAvatar = $('profileAvatar');
-    if (account.avatarUrl) {
+    if (activeAccount.avatarUrl) {
       pAvatar.onload = () => { pAvatar.classList.add('visible'); $('profileInitials').hidden = true; };
       pAvatar.onerror = () => { pAvatar.classList.remove('visible'); $('profileInitials').hidden = false; };
-      pAvatar.src = account.avatarUrl;
+      pAvatar.src = activeAccount.avatarUrl;
     } else {
       pAvatar.classList.remove('visible');
       pAvatar.removeAttribute('src');
@@ -471,9 +555,9 @@ function renderAccount(account, hasXTab = false) {
     }
 
     const bannerEl = $('profileBanner');
-    bannerEl.style.backgroundImage = account.bannerUrl ? `url("${account.bannerUrl.replace(/"/g, '%22')}")` : '';
+    bannerEl.style.backgroundImage = activeAccount.bannerUrl ? `url("${activeAccount.bannerUrl.replace(/"/g, '%22')}")` : '';
 
-    const s = account.stats || {};
+    const s = activeAccount.stats || {};
     const hasPosts = s.posts != null;
     const hasFollowing = s.following != null;
     const hasFollowers = s.followers != null;
@@ -488,9 +572,18 @@ function renderAccount(account, hasXTab = false) {
 
   $('noAccountEmpty').hidden = ready || settingsOpen;
   if (!ready) {
-    $('noAccountCopy').textContent = hasXTab
-      ? 'Sign in to your X account in this tab to unlock scanning and cleanup.'
-      : 'Open x.com and sign in to detect your account and unlock cleanup tools.';
+    if (lastDetectStatus === 'loading') {
+      $('noAccountTitle').textContent = 'Waiting for X to load…';
+      $('noAccountCopy').textContent = 'Your X tab is still loading. Your account will connect automatically in a moment, or tap Check again.';
+    } else if (lastDetectStatus === 'error') {
+      $('noAccountTitle').textContent = "Can't read this X tab";
+      $('noAccountCopy').textContent = 'Reload the X tab or make sure X Bulk Clean has site access to x.com in Chrome extension settings, then tap Check again.';
+    } else {
+      $('noAccountTitle').textContent = 'Sign in to X to start';
+      $('noAccountCopy').textContent = hasXTab
+        ? 'Sign in to your X account in this tab — or if you are already signed in, tap Check again.'
+        : 'Open x.com and sign in to detect your account and unlock cleanup tools.';
+    }
   }
 
   $('startScan').disabled = !ready;
@@ -500,23 +593,27 @@ function renderAccount(account, hasXTab = false) {
 }
 
 async function openX() {
+  clearAccountRetry();
   const existing = await findActiveXTab();
   if (existing) {
+    const [cur] = await chrome.tabs.query({ active: true, currentWindow: true });
+    const alreadyFocused = cur?.id === existing.id;
     await chrome.tabs.update(existing.id, { active: true });
     if (existing.windowId != null) await chrome.windows.update(existing.windowId, { focused: true });
+
+    const detected = await detectAccount(existing);
+    if (detected?.username) {
+      activeTab = existing;
+      renderAccount(detected, true);
+      return;
+    }
+    if (alreadyFocused || /\/(i\/flow\/)?login\b|\/settings\b/i.test(existing.url || '')) {
+      await chrome.tabs.update(existing.id, { url: 'https://x.com/home', active: true });
+    }
+    scheduleAccountRetry();
   } else {
     await chrome.tabs.create({ url: 'https://x.com/home' });
-  }
-}
-
-async function openXLanguageSettings() {
-  const url = 'https://x.com/settings/language';
-  const existing = await findActiveXTab();
-  if (existing) {
-    await chrome.tabs.update(existing.id, { url, active: true });
-    if (existing.windowId != null) await chrome.windows.update(existing.windowId, { focused: true });
-  } else {
-    await chrome.tabs.create({ url });
+    scheduleAccountRetry();
   }
 }
 
@@ -526,18 +623,24 @@ function showError(msg) {
   el.hidden = !msg;
 }
 
-async function ensurePreviewPage(type) {
+async function ensurePreviewPage(type, scopeOverride = null) {
   activeTab = await findActiveXTab();
   if (!activeTab || !activeAccount?.username) return null;
   const domain = activeTab.url.includes('twitter.com') ? 'twitter.com' : 'x.com';
+  const mScope = scopeOverride || currentCache('media')?.mediaScope || selectedMediaScope();
   const path =
     type === 'replies' ? '/with_replies'
-      : type === 'likes' ? '/likes'
-        : type === 'unfollow' ? '/following'
-          : '';
+      : type === 'media' ? `/media?filter=${mScope === 'video' ? 'video' : 'photo'}`
+        : type === 'likes' ? '/likes'
+          : type === 'reposts' ? '/reposts'
+            : type === 'unfollow' ? '/following'
+              : '';
   const target = `https://${domain}/${activeAccount.username}${path}`;
-  const current = (activeTab.url || '').replace(/[?#].*$/, '').replace(/\/$/, '');
-  if (current !== target) {
+  const current = type === 'media'
+    ? (activeTab.url || '').replace(/#.*$/, '').replace(/\/$/, '')
+    : (activeTab.url || '').replace(/[?#].*$/, '').replace(/\/$/, '');
+  const alreadyOnLikes = type === 'likes' && /\/(i\/history\/likes|[^/]+\/likes)$/i.test(current);
+  if (current.toLowerCase() !== target.toLowerCase() && !alreadyOnLikes) {
     const loaded = waitForTabLoad(activeTab.id);
     await chrome.tabs.update(activeTab.id, { url: target, active: true });
     await loaded;
@@ -564,15 +667,30 @@ function startPreviewScanner(type, account, performanceMode, replyScope = 'fast'
   if (previous?.style) previous.style.remove();
 
   const parseCountText = (raw) => {
-    const s = (raw || '').trim().replace(/,/g, '');
+    const s = (raw || '').trim().replace(/\u00a0/g, ' ');
     if (!s) return 0;
-    const m = s.match(/(\d+(?:\.\d+)?)\s*([KMB])?/i);
+    const m = s.match(/(\d+(?:[.,]\d+)*)\s*(K|M|B|Mn|Mr|mil|Mio|Tsd|万|億|천|만)?/i);
     if (!m) return 0;
-    const num = parseFloat(m[1]);
-    const unit = (m[2] || '').toUpperCase();
-    if (unit === 'K') return Math.round(num * 1000);
-    if (unit === 'M') return Math.round(num * 1000000);
-    if (unit === 'B') return Math.round(num * 1000000000);
+    let numStr = m[1];
+    const unit = (m[2] || '').toLowerCase();
+    if (unit) {
+      numStr = numStr.replace(',', '.');
+    } else if (/^\d{1,3}([.,]\d{3})+$/.test(numStr)) {
+      numStr = numStr.replace(/[.,]/g, '');
+    } else {
+      numStr = numStr.replace(/,/g, '');
+    }
+    const num = parseFloat(numStr);
+    if (Number.isNaN(num)) return 0;
+    if (unit === 'k' || unit === 'mil' || unit === 'tsd' || unit === '천') return Math.round(num * 1000);
+    if (unit === 'b') {
+      const lang = (document.documentElement?.lang || '').toLowerCase();
+      return Math.round(num * (lang.startsWith('tr') ? 1000 : 1000000000));
+    }
+    if (unit === '万' || unit === '만') return Math.round(num * 10000);
+    if (unit === 'm' || unit === 'mn' || unit === 'mio') return Math.round(num * 1000000);
+    if (unit === 'mr') return Math.round(num * 1000000000);
+    if (unit === '億') return Math.round(num * 100000000);
     return Math.round(num);
   };
 
@@ -580,12 +698,14 @@ function startPreviewScanner(type, account, performanceMode, replyScope = 'fast'
     // Only use profile counts where they represent an accurate/approx upper bound:
     // Following count is exact; Posts count is approx upper bound for "Posts + replies" mode only.
     if (type === 'replies' && replyScope === 'all') {
-      const header = document.querySelector('[data-testid="primaryColumn"] h2')?.parentElement;
-      const text = header?.textContent || '';
-      const m = text.match(/([\d,.]+\s*[KMB]?)\s*(posts|tweets)/i);
-      if (m) return parseCountText(m[1]);
+      if (typeof account?.stats?.posts === 'number' && account.stats.posts > 0) return account.stats.posts;
+      const h2 = document.querySelector('[data-testid="primaryColumn"] h2');
+      const subline = Array.from(h2?.parentElement?.children || []).find(el => el !== h2 && /\d/.test(el.textContent || ''));
+      const val = parseCountText(subline?.textContent || '');
+      if (val > 0) return val;
     }
     if (type === 'unfollow') {
+      if (typeof account?.stats?.following === 'number' && account.stats.following > 0) return account.stats.following;
       const link = document.querySelector('a[href$="/following"] span');
       if (link) {
         const val = parseCountText(link.textContent);
@@ -617,7 +737,12 @@ function startPreviewScanner(type, account, performanceMode, replyScope = 'fast'
 
   const ownHandle = () => {
     const link = document.querySelector('[data-testid="AppTabBar_Profile_Link"]') || document.querySelector('a[aria-label="Profile"]');
-    return link?.getAttribute('href')?.replace(/^\//, '').split('/')[0].toLowerCase() || null;
+    const fromLink = link?.getAttribute('href')?.replace(/^\//, '').split('/')[0].toLowerCase();
+    if (fromLink && /^[a-z0-9_]{1,15}$/.test(fromLink)) return fromLink;
+    const avatarEl = document.querySelector('[data-testid="SideNav_AccountSwitcher_Button"] [data-testid^="UserAvatar-Container-"], [data-testid="DashButton_ProfileIcon_Link"] [data-testid^="UserAvatar-Container-"]');
+    const fromAvatar = (avatarEl?.getAttribute('data-testid') || '').replace(/^UserAvatar-Container-/, '').toLowerCase();
+    if (fromAvatar && /^[a-z0-9_]{1,15}$/.test(fromAvatar)) return fromAvatar;
+    return (account?.username || '').toLowerCase() || null;
   };
   const me = ownHandle();
   const tweetId = article => article.querySelector('a[href*="/status/"]')?.getAttribute('href')?.match(/\/status\/(\d+)/)?.[1] || null;
@@ -632,14 +757,48 @@ function startPreviewScanner(type, account, performanceMode, replyScope = 'fast'
   const extractLikeCount = (article) => {
     const btn = article.querySelector('[data-testid="like"], [data-testid="unlike"]');
     if (!btn) return 0;
+    const textVal = parseCountText(btn.textContent || '');
+    if (textVal > 0) return textVal;
     const label = btn.getAttribute('aria-label') || '';
-    const match = label.match(/([\d,.]+)\s*([KMB])?\s*like/i);
-    if (match) return parseCountText(match[1] + (match[2] || ''));
-    return parseCountText(btn.textContent || '');
+    return parseCountText(label);
+  };
+  const findReplyBannerHandle = (article) => {
+    const userNameEl = article.querySelector('[data-testid="User-Name"]');
+    const tweetTextEl = article.querySelector('[data-testid="tweetText"]');
+    const socialEl = article.querySelector('[data-testid="socialContext"]');
+    for (const a of article.querySelectorAll('a[role="link"][href^="/"]')) {
+      if (userNameEl?.contains(a) || tweetTextEl?.contains(a) || socialEl?.contains(a)) continue;
+      if (a.closest('[data-testid="Tweet-User-Avatar"]')) continue;
+      // Ignore links inside a nested quoted tweet card
+      const quoteCard = a.closest('[tabindex="0"][role="link"]');
+      if (quoteCard && quoteCard !== article && article.contains(quoteCard)) continue;
+      const txt = (a.textContent || '').trim();
+      if (!/^@[A-Za-z0-9_]{1,15}$/.test(txt)) continue;
+      if (userNameEl && !(userNameEl.compareDocumentPosition(a) & Node.DOCUMENT_POSITION_FOLLOWING)) continue;
+      if (tweetTextEl && !(a.compareDocumentPosition(tweetTextEl) & Node.DOCUMENT_POSITION_FOLLOWING)) continue;
+      return txt;
+    }
+    return '';
+  };
+  const findParentTweetAuthor = (article) => {
+    const cell = article.closest('[data-testid="cellInnerDiv"]');
+    let prev = cell?.previousElementSibling;
+    for (let hops = 0; prev && hops < 4; hops++, prev = prev.previousElementSibling) {
+      const prevTweet = prev.querySelector?.('article[data-testid="tweet"]');
+      if (prevTweet) {
+        if (!hasConnector(prev)) return '';
+        const h = authorHandle(prevTweet);
+        return h ? `@${h}` : '@';
+      }
+    }
+    return '';
   };
   const extractReplyingTo = (article) => {
-    const snippet = (article.textContent || '').slice(0, 320);
-    const m = snippet.match(/Replying to\s+(@[A-Za-z0-9_]{1,15})/i);
+    const fromBanner = findReplyBannerHandle(article);
+    if (fromBanner) return fromBanner;
+    const fromParent = findParentTweetAuthor(article);
+    if (fromParent && fromParent !== '@') return fromParent;
+    const m = (article.textContent || '').slice(0, 320).match(/Replying to\s+(@[A-Za-z0-9_]{1,15})/i);
     return m ? m[1] : '';
   };
   const hasExternalLink = (article, text) => {
@@ -660,27 +819,26 @@ function startPreviewScanner(type, account, performanceMode, replyScope = 'fast'
     return false;
   };
   const isReply = article => {
-    if (/Replying to/i.test((article.textContent || '').slice(0, 300))) return true;
-    const cell = article.closest('[data-testid="cellInnerDiv"]');
-    let prev = cell?.previousElementSibling;
-    for (let hops = 0; prev && hops < 4; hops++, prev = prev.previousElementSibling) {
-      if (prev.querySelector?.('article[data-testid="tweet"]')) return hasConnector(prev);
-    }
-    return false;
+    if (findReplyBannerHandle(article)) return true;
+    if (findParentTweetAuthor(article)) return true;
+    return /Replying to/i.test((article.textContent || '').slice(0, 300));
   };
   const atBottom = () => window.innerHeight + window.scrollY >= document.documentElement.scrollHeight - 240;
 
   const detectRateLimit = () => {
     const toast = document.querySelector('[data-testid="toast"]') || document.querySelector('[role="alert"]');
     const text = (toast?.textContent || '').trim();
-    return /rate.?limit|too many requests|please wait a few moments/i.test(text);
+    return /rate.?limit|too many requests|please wait a few moments|429|hız sınır|çok fazla istek|birkaç dakika bekle|制限|しばらく待|límite|demasiadas solicitudes|limite de débit|trop de requêtes|zu viele anfragen/i.test(text);
   };
 
   const applyPerfStyle = () => {
     if (!P.performanceMode || P.style) return;
+    if (type === 'media' && replyScope === 'photo') return;
     const style = document.createElement('style');
     style.id = '__xbcPreviewPerformance';
-    style.textContent = 'article[data-testid="tweet"] [data-testid="tweetPhoto"],article[data-testid="tweet"] [data-testid="videoPlayer"],article[data-testid="tweet"] video{display:none!important}';
+    style.textContent = type === 'media'
+      ? 'article[data-testid="tweet"] video{visibility:hidden!important}'
+      : 'article[data-testid="tweet"] [data-testid="tweetPhoto"],article[data-testid="tweet"] [data-testid="videoPlayer"],article[data-testid="tweet"] video{display:none!important}';
     (document.head || document.documentElement).appendChild(style);
     P.style = style;
     document.querySelectorAll('article[data-testid="tweet"] video').forEach(v => { v.pause(); v.autoplay = false; v.preload = 'none'; });
@@ -710,21 +868,37 @@ function startPreviewScanner(type, account, performanceMode, replyScope = 'fast'
     P.busy = true;
     try {
       let added = 0;
+      const scopeRoot = document.querySelector('[data-testid="primaryColumn"]') || document;
       if (type === 'unfollow') {
-        for (const cell of document.querySelectorAll('[data-testid="UserCell"]')) {
+        for (const cell of scopeRoot.querySelectorAll('[data-testid="UserCell"]')) {
+          // Only include accounts actually being followed (excludes "Who to follow" suggestions)
+          if (!cell.querySelector('button[data-testid$="-unfollow"]')) continue;
           const username = userHandle(cell);
           const id = username?.toLowerCase();
           if (!id || P.seen.has(id)) continue;
-          const leafTexts = Array.from(cell.querySelectorAll('span')).filter(s => s.children.length === 0).map(s => (s.textContent || '').trim()).filter(Boolean);
-          const displayName = leafTexts.find(t => t !== `@${username}` && !t.startsWith('@') && !/^(following|unfollow|follows you)$/i.test(t)) || username;
+          const profileLinks = Array.from(cell.querySelectorAll('a[role="link"][href^="/"]'))
+            .filter(a => (a.getAttribute('href') || '').replace(/^\//, '').split('/')[0].toLowerCase() === id);
+          const displayName = profileLinks
+            .map(a => (a.textContent || '').trim())
+            .find(t => t && !t.startsWith('@')) || username;
+
+          // Exclude elements referenced via aria-describedby (localized "Click to Unfollow ...")
+          const describedIds = new Set();
+          for (const el of cell.querySelectorAll('[aria-describedby]')) {
+            (el.getAttribute('aria-describedby') || '').split(/\s+/).forEach(x => { if (x) describedIds.add(x); });
+          }
           const bio = Array.from(cell.querySelectorAll('div[dir="auto"]'))
+            .filter(el => {
+              if (el.id && describedIds.has(el.id)) return false;
+              if (el.closest('a[role="link"], [data-testid="userFollowIndicator"], button[data-testid$="-unfollow"], button[data-testid$="-follow"]')) return false;
+              return true;
+            })
             .map(el => (el.textContent || '').trim())
-            .filter(t => t && !/^click to unfollow/i.test(t))
+            .filter(Boolean)
             .at(-1) || '';
           const avatar = cell.querySelector('[data-testid^="UserAvatar-Container"] img[src], img[src*="profile_images"]');
           const avatarUrl = avatar?.currentSrc || avatar?.src || '';
-          const followsYou = !!cell.querySelector('[data-testid="userFollowIndicator"]') ||
-            leafTexts.some(t => /^follows you$/i.test(t));
+          const followsYou = !!cell.querySelector('[data-testid="userFollowIndicator"]');
           const noAvatar = !avatarUrl || /default_profile/i.test(avatarUrl);
 
           P.seen.add(id);
@@ -751,18 +925,50 @@ function startPreviewScanner(type, account, performanceMode, replyScope = 'fast'
           });
           added++;
         }
+      } else if (type === 'media' && replyScope === 'photo') {
+        for (const a of scopeRoot.querySelectorAll('li a[href*="/status/"], a[href*="/photo/"]')) {
+          const href = a.getAttribute('href') || '';
+          const id = href.match(/\/status\/(\d+)/)?.[1] || null;
+          if (!id || P.seen.has(id)) continue;
+          const img = a.querySelector('img[src]');
+          const thumbUrl = img?.currentSrc || img?.src || '';
+          const altRaw = (img?.alt || '').trim();
+          const altText = altRaw && !/^(image|photo|görsel|resim|fotoğraf|imagen|bild)$/i.test(altRaw) ? altRaw : '';
+          const hrefAuthor = href.replace(/^\//, '').split('/')[0] || me || '';
+          P.seen.add(id);
+          P.items.push({
+            id,
+            type: 'photo',
+            classification: 'photo',
+            mediaKind: 'photo',
+            thumbUrl,
+            text: altText,
+            date: '',
+            author: hrefAuthor,
+            replyingTo: '',
+            url: `/${hrefAuthor}/status/${id}`,
+            likes: 0,
+            hasMedia: true,
+            hasLinks: false,
+            selected: false,
+            discoveredAt: Date.now()
+          });
+          added++;
+        }
       } else {
-        for (const article of document.querySelectorAll('article[data-testid="tweet"]')) {
+        for (const article of scopeRoot.querySelectorAll('article[data-testid="tweet"]')) {
           const id = tweetId(article);
           if (!id || P.seen.has(id)) continue;
           const repost = !!article.querySelector('[data-testid="unretweet"]');
           const liked = !!article.querySelector('[data-testid="unlike"]');
-          const reply = (type === 'reposts' || type === 'likes') ? false : isReply(article);
+          const reply = (type === 'reposts' || type === 'likes' || type === 'media') ? false : isReply(article);
 
           if (type === 'likes') {
             if (!liked) continue;
           } else if (type === 'reposts') {
             if (!repost) continue;
+          } else if (type === 'media') {
+            if (!isMine(article) || repost) continue;
           } else {
             if (!isMine(article)) continue;
             if (type === 'replies' && repost) continue;
@@ -772,18 +978,22 @@ function startPreviewScanner(type, account, performanceMode, replyScope = 'fast'
 
           const link = article.querySelector(`a[href*="/status/${id}"]`) || article.querySelector('a[href*="/status/"]');
           const tweetText = article.querySelector('[data-testid="tweetText"]')?.textContent || '';
+          const videoPoster = type === 'media'
+            ? (article.querySelector('video')?.getAttribute('poster') || article.querySelector('[data-testid="videoPlayer"] img[src], [data-testid="tweetPhoto"] img[src]')?.currentSrc || '')
+            : '';
           P.seen.add(id);
           P.items.push({
             id,
-            type: type === 'likes' ? 'like' : type === 'reposts' ? 'repost' : reply ? 'reply' : type === 'replies' ? 'post' : 'tweet',
-            classification: type === 'replies' ? (reply ? 'definite' : 'standalone') : type,
+            type: type === 'likes' ? 'like' : type === 'reposts' ? 'repost' : type === 'media' ? 'video' : reply ? 'reply' : type === 'replies' ? 'post' : 'tweet',
+            classification: type === 'replies' ? (reply ? 'definite' : 'standalone') : type === 'media' ? 'video' : type,
+            ...(type === 'media' ? { mediaKind: 'video', thumbUrl: videoPoster } : {}),
             text: tweetText,
             date: article.querySelector('time')?.getAttribute('datetime') || '',
             author: authorHandle(article) || me || '',
             replyingTo: reply ? extractReplyingTo(article) : '',
             url: link?.getAttribute('href') || '',
             likes: extractLikeCount(article),
-            hasMedia: !!article.querySelector('[data-testid="tweetPhoto"], [data-testid="videoPlayer"], video'),
+            hasMedia: type === 'media' || !!article.querySelector('[data-testid="tweetPhoto"], [data-testid="videoPlayer"], video'),
             hasLinks: hasExternalLink(article, tweetText),
             selected: false,
             discoveredAt: Date.now()
@@ -908,10 +1118,11 @@ function runCleanupWorker(mode, type, selectedItems, account, performanceMode, r
   const protectedSet = new Set((whitelistArr || []).map(h => String(h).toLowerCase()));
   const action =
     type === 'replies' ? 'deleteReplies'
-      : type === 'likes' ? 'unlike'
-        : type === 'reposts' ? 'unrepost'
-          : type === 'unfollow' ? 'bulkUnfollow'
-            : 'delete';
+      : type === 'media' ? 'deleteMedia'
+        : type === 'likes' ? 'unlike'
+          : type === 'reposts' ? 'unrepost'
+            : type === 'unfollow' ? 'bulkUnfollow'
+              : 'delete';
 
   const filteredSelected = (selectedItems || []).filter(item => {
     if (type === 'unfollow' && protectedSet.has((item.username || item.id || '').toLowerCase())) return false;
@@ -925,7 +1136,7 @@ function runCleanupWorker(mode, type, selectedItems, account, performanceMode, r
     mode,
     type,
     totalTarget,
-    backup: { tweets: [], replies: [], unliked: [], unreposted: [], follows: [], unfollows: [] },
+    backup: { tweets: [], replies: [], media: [], unliked: [], unreposted: [], follows: [], unfollows: [] },
     processed: new Set(),
     succeededIds: new Set(),
     failedItems: [],
@@ -949,7 +1160,14 @@ function runCleanupWorker(mode, type, selectedItems, account, performanceMode, r
   };
 
   const sleep = ms => new Promise(resolve => setTimeout(resolve, ms));
-  const ownHandle = () => document.querySelector('[data-testid="AppTabBar_Profile_Link"]')?.getAttribute('href')?.replace(/^\//, '').split('/')[0].toLowerCase() || null;
+  const ownHandle = () => {
+    const fromLink = document.querySelector('[data-testid="AppTabBar_Profile_Link"]')?.getAttribute('href')?.replace(/^\//, '').split('/')[0].toLowerCase();
+    if (fromLink && /^[a-z0-9_]{1,15}$/.test(fromLink)) return fromLink;
+    const avatarEl = document.querySelector('[data-testid="SideNav_AccountSwitcher_Button"] [data-testid^="UserAvatar-Container-"], [data-testid="DashButton_ProfileIcon_Link"] [data-testid^="UserAvatar-Container-"]');
+    const fromAvatar = (avatarEl?.getAttribute('data-testid') || '').replace(/^UserAvatar-Container-/, '').toLowerCase();
+    if (fromAvatar && /^[a-z0-9_]{1,15}$/.test(fromAvatar)) return fromAvatar;
+    return (account?.username || '').toLowerCase() || null;
+  };
   const me = ownHandle();
   const tweetId = article => article.querySelector('a[href*="/status/"]')?.getAttribute('href')?.match(/\/status\/(\d+)/)?.[1] || null;
   const authorHandle = article => article.querySelector('[data-testid="User-Name"] a[role="link"][href^="/"]')?.getAttribute('href')?.replace(/^\//, '').split('/')[0].toLowerCase() || null;
@@ -971,10 +1189,13 @@ function runCleanupWorker(mode, type, selectedItems, account, performanceMode, r
     };
   };
   const userSnap = cell => {
-    const link = cell.querySelector('a[role="link"][href^="/"]');
-    const username = link?.getAttribute('href')?.replace(/^\//, '').split('/')[0] || '';
-    const nameSpan = cell.querySelector('[data-testid="User-Name"] span');
-    return { username, displayName: nameSpan?.textContent || username, profileUrl: link?.getAttribute('href') || `/${username}` };
+    const links = Array.from(cell.querySelectorAll('a[role="link"][href^="/"]'));
+    const username = links.map(a => a.getAttribute('href')?.replace(/^\//, '').split('/')[0]).find(h => /^[A-Za-z0-9_]{1,15}$/.test(h || '')) || '';
+    const displayName = links
+      .filter(a => (a.getAttribute('href') || '').replace(/^\//, '').split('/')[0].toLowerCase() === username.toLowerCase())
+      .map(a => (a.textContent || '').trim())
+      .find(t => t && !t.startsWith('@')) || username;
+    return { username, displayName, profileUrl: `/${username}` };
   };
   const hasConnector = cell => {
     const divs = cell?.querySelectorAll('div') || [];
@@ -987,14 +1208,31 @@ function runCleanupWorker(mode, type, selectedItems, account, performanceMode, r
     }
     return false;
   };
+  const hasReplyBanner = article => {
+    const userNameEl = article.querySelector('[data-testid="User-Name"]');
+    const tweetTextEl = article.querySelector('[data-testid="tweetText"]');
+    const socialEl = article.querySelector('[data-testid="socialContext"]');
+    for (const a of article.querySelectorAll('a[role="link"][href^="/"]')) {
+      if (userNameEl?.contains(a) || tweetTextEl?.contains(a) || socialEl?.contains(a)) continue;
+      if (a.closest('[data-testid="Tweet-User-Avatar"]')) continue;
+      const quoteCard = a.closest('[tabindex="0"][role="link"]');
+      if (quoteCard && quoteCard !== article && article.contains(quoteCard)) continue;
+      const txt = (a.textContent || '').trim();
+      if (!/^@[A-Za-z0-9_]{1,15}$/.test(txt)) continue;
+      if (userNameEl && !(userNameEl.compareDocumentPosition(a) & Node.DOCUMENT_POSITION_FOLLOWING)) continue;
+      if (tweetTextEl && !(a.compareDocumentPosition(tweetTextEl) & Node.DOCUMENT_POSITION_FOLLOWING)) continue;
+      return true;
+    }
+    return false;
+  };
   const isReply = article => {
-    if (/Replying to/i.test((article.textContent || '').slice(0, 300))) return true;
+    if (hasReplyBanner(article)) return true;
     const cell = article.closest('[data-testid="cellInnerDiv"]');
     let prev = cell?.previousElementSibling;
     for (let i = 0; prev && i < 4; i++, prev = prev.previousElementSibling) {
       if (prev.querySelector?.('article[data-testid="tweet"]')) return hasConnector(prev);
     }
-    return false;
+    return /Replying to/i.test((article.textContent || '').slice(0, 300));
   };
   const atBottom = () => window.innerHeight + window.scrollY >= document.documentElement.scrollHeight - 240;
   const clickConfirm = async testId => {
@@ -1005,11 +1243,28 @@ function runCleanupWorker(mode, type, selectedItems, account, performanceMode, r
     }
     return false;
   };
+  const isDeleteMenuItem = item => {
+    if (!item || item.offsetParent === null) return false;
+    // 1. Language-independent: X's trash-can SVG icon path
+    const pathD = item.querySelector('svg path')?.getAttribute('d') || '';
+    if (/^M16\s+6V4\.5C16\s+3\.12/i.test(pathD)) return true;
+    // 2. Language-independent: destructive red color (#F4212E) on own post menu item
+    const testId = item.getAttribute('data-testid') || '';
+    if (!testId) {
+      const svg = item.querySelector('svg');
+      const span = item.querySelector('span');
+      const isRed = (el) => el && getComputedStyle(el).color === 'rgb(244, 33, 46)';
+      if (isRed(svg) || isRed(span)) return true;
+    }
+    // 3. Multi-language text fallback
+    const label = (item.textContent || '').trim();
+    return /^(delete( post| tweet| reply)?|sil|削除|eliminar|supprimer|löschen|elimina|excluir|удалить|삭제|删除|حذف)$/i.test(label);
+  };
   const clickDeleteMenu = async () => {
     for (let i = 0; i < 9; i++) {
       const items = document.querySelectorAll('[role="menuitem"]');
-      const button = Array.from(items).find(item => /^delete( post| tweet| reply)?$/i.test((item.textContent || '').trim()));
-      if (button && button.offsetParent !== null) { button.click(); return true; }
+      const button = Array.from(items).find(isDeleteMenuItem);
+      if (button) { button.click(); return true; }
       await sleep(fast ? 110 : 160);
     }
     return false;
@@ -1017,8 +1272,12 @@ function runCleanupWorker(mode, type, selectedItems, account, performanceMode, r
   const detectIssue = () => {
     const toast = document.querySelector('[data-testid="toast"]') || document.querySelector('[role="alert"]');
     const text = (toast?.textContent || '').trim();
-    if (/rate.?limit|too many requests|please wait a few moments/i.test(text)) return 'Rate limited by X — wait a few moments before starting another job';
-    if (/try again|something went wrong|unable|locked|restrict|exceeded/i.test(text)) return text.slice(0, 200);
+    if (/rate.?limit|too many requests|please wait a few moments|429|hız sınır|çok fazla istek|birkaç dakika bekle|制限|しばらく待|límite|demasiadas solicitudes|limite de débit|trop de requêtes|zu viele anfragen/i.test(text)) {
+      return 'Rate limited by X — wait a few moments before starting another job';
+    }
+    if (/try again|something went wrong|unable|locked|restrict|exceeded|bir hata oluştu|tekrar dene|kısıtlan|kilitlen|エラー|もう一度|algo salió mal|inténtalo de nuevo|une erreur|réessayer|etwas ist schief|erneut versuchen/i.test(text)) {
+      return text.slice(0, 200);
+    }
     return null;
   };
   const stopIfIssue = async (waitMs = 0) => {
@@ -1036,6 +1295,7 @@ function runCleanupWorker(mode, type, selectedItems, account, performanceMode, r
   const counts = () => ({
     tweets: X.backup.tweets.length,
     replies: X.backup.replies.length,
+    media: X.backup.media.length,
     unliked: X.backup.unliked.length,
     unreposted: X.backup.unreposted.length,
     follows: 0,
@@ -1049,7 +1309,7 @@ function runCleanupWorker(mode, type, selectedItems, account, performanceMode, r
       X.failedItems = Array.from(selected.values()).filter(item => !X.succeededIds.has(item.id));
     }
     const completedAt = Date.now(), jobCounts = counts();
-    const total = jobCounts.tweets + jobCounts.replies + jobCounts.unliked + jobCounts.unreposted + jobCounts.unfollows;
+    const total = jobCounts.tweets + jobCounts.replies + jobCounts.media + jobCounts.unliked + jobCounts.unreposted + jobCounts.unfollows;
     const status = /rate.?limit/i.test(reason || '') ? 'rate_limited' : /^Finished/i.test(reason || '') ? 'completed' : /Stopped by user/i.test(reason || '') ? 'stopped' : 'interrupted';
     const summary = {
       id: X.jobId, action, account,
@@ -1125,10 +1385,12 @@ function runCleanupWorker(mode, type, selectedItems, account, performanceMode, r
       .c.paused .fill,.c.done .fill{animation:none}
       @keyframes sh{from{background-position:200% 0}to{background-position:-200% 0}}
       .m{display:flex;justify-content:space-between;gap:8px;color:#b8bcc8;font-size:11.5px;font-variant-numeric:tabular-nums}
-      .review{margin-top:10px;padding:10px;border:1px solid rgba(251,191,36,.26);border-radius:10px;background:rgba(251,191,36,.09)}
+      .review{margin-top:10px;padding:11px;border:1px solid rgba(129,140,248,.42);border-radius:10px;background:radial-gradient(120% 130% at 0% 0%,rgba(99,102,241,.24),transparent 60%),radial-gradient(110% 120% at 100% 100%,rgba(236,72,153,.22),transparent 60%),rgba(255,255,255,.04)}
       .review[hidden]{display:none}
-      .review-copy{margin:0 0 8px;color:#e7e8e7;font-size:11.5px;line-height:1.4}
-      .review-cta{width:100%;min-block-size:34px;padding:6px 10px;display:inline-flex;align-items:center;justify-content:center;gap:6px;border-radius:8px;background:#f4f5f7;color:#111317;font:700 11.5px -apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;text-decoration:none}
+      .review-stars{color:#fbbf24;font-size:12px;letter-spacing:1px;margin-bottom:4px;filter:drop-shadow(0 0 6px rgba(251,191,36,.45))}
+      .review-copy{margin:0 0 9px;color:#f1f2f6;font-size:11.5px;line-height:1.45}
+      .review-cta{width:100%;min-block-size:36px;padding:6px 10px;display:inline-flex;align-items:center;justify-content:center;gap:6px;border-radius:8px;background:linear-gradient(135deg,#4f46e5 0%,#7c3aed 55%,#db2777 100%);color:#ffffff;font:700 12px -apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;text-decoration:none;box-shadow:0 5px 14px rgba(124,58,237,.35)}
+      .review-cta:hover{filter:brightness(1.08)}
       .btns{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-top:10px}
       .btns.single{grid-template-columns:1fr}
       button{min-block-size:34px;border-radius:8px;border:1px solid rgba(255,255,255,.16);background:rgba(255,255,255,.08);color:#f4f5f7;font:650 11.5px -apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;cursor:pointer}
@@ -1143,8 +1405,9 @@ function runCleanupWorker(mode, type, selectedItems, account, performanceMode, r
       <div class="bar"><div id="fill" class="fill"></div></div>
       <div class="m"><span id="count">0 ${progressVerb}</span><span id="eta">Estimating…</span></div>
       <div id="jobReview" class="review" hidden>
+        <div class="review-stars" aria-hidden="true">★★★★★</div>
         <p id="jobReviewCopy" class="review-copy"></p>
-        <a id="jobReviewLink" class="review-cta" href="https://chromewebstore.google.com/detail/bcpkijoolaciolfegopiaifmoedbolgg/reviews" target="_blank" rel="noopener noreferrer">Rate on Chrome Web Store</a>
+        <a id="jobReviewLink" class="review-cta" href="https://chromewebstore.google.com/detail/bcpkijoolaciolfegopiaifmoedbolgg/reviews" target="_blank" rel="noopener noreferrer">★ Rate on Chrome Web Store</a>
       </div>
       <div id="btns" class="btns">
         <button id="pause" type="button">Pause</button>
@@ -1238,9 +1501,11 @@ function runCleanupWorker(mode, type, selectedItems, account, performanceMode, r
   };
   window.__xCleanerStop = () => stop('Stopped by user');
 
-  if (performanceMode) {
+  if (performanceMode && !(type === 'media' && replyScope === 'photo')) {
     const style = document.createElement('style');
-    style.textContent = 'article[data-testid="tweet"] [data-testid="tweetPhoto"],article[data-testid="tweet"] [data-testid="videoPlayer"],article[data-testid="tweet"] video{display:none!important}';
+    style.textContent = type === 'media'
+      ? 'article[data-testid="tweet"] video{visibility:hidden!important}'
+      : 'article[data-testid="tweet"] [data-testid="tweetPhoto"],article[data-testid="tweet"] [data-testid="videoPlayer"],article[data-testid="tweet"] video{display:none!important}';
     (document.head || document.documentElement).appendChild(style);
     X.performanceStyle = style;
   }
@@ -1259,9 +1524,10 @@ function runCleanupWorker(mode, type, selectedItems, account, performanceMode, r
       const issue = detectIssue();
       if (issue) { await stop(issue); return; }
       const candidates = [];
+      const scopeRoot = document.querySelector('[data-testid="primaryColumn"]') || document;
 
       if (type === 'unfollow') {
-        for (const cell of document.querySelectorAll('[data-testid="UserCell"]')) {
+        for (const cell of scopeRoot.querySelectorAll('[data-testid="UserCell"]')) {
           const id = userHandle(cell);
           if (!id || X.processed.has(id) || protectedSet.has(id)) continue;
           if (isSelected && !selected.has(id)) continue;
@@ -1271,8 +1537,16 @@ function runCleanupWorker(mode, type, selectedItems, account, performanceMode, r
           });
           if (control && control.offsetParent !== null) candidates.push({ cell, id, control });
         }
+      } else if (type === 'media' && replyScope === 'photo') {
+        for (const a of scopeRoot.querySelectorAll('li a[href*="/status/"], a[href*="/photo/"]')) {
+          const href = a.getAttribute('href') || '';
+          const id = href.match(/\/status\/(\d+)/)?.[1] || null;
+          if (!id || X.processed.has(id)) continue;
+          if (isSelected && !selected.has(id)) continue;
+          if (a.offsetParent !== null) candidates.push({ id, control: a, href });
+        }
       } else {
-        for (const article of document.querySelectorAll('article[data-testid="tweet"]')) {
+        for (const article of scopeRoot.querySelectorAll('article[data-testid="tweet"]')) {
           const id = tweetId(article);
           if (!id || X.processed.has(id)) continue;
           if (isSelected && !selected.has(id)) continue;
@@ -1300,11 +1574,11 @@ function runCleanupWorker(mode, type, selectedItems, account, performanceMode, r
       }
 
       let handled = 0;
-      const maxPerCycle = fast ? 5 : (type === 'likes' ? 4 : 3);
-      for (const { id, control, article, cell } of candidates) {
+      const maxPerCycle = fast ? 5 : (type === 'likes' ? 4 : (type === 'media' && replyScope === 'photo' ? 2 : 3));
+      for (const { id, control, article, cell, href } of candidates) {
         if (!X.interval || X.paused) break;
         X.processed.add(id);
-        const snap = isSelected ? selected.get(id) : (type === 'unfollow' ? userSnap(cell) : tweetSnap(article));
+        const snap = isSelected ? selected.get(id) : (type === 'unfollow' ? userSnap(cell) : article ? tweetSnap(article) : { id, url: href || `/${me || ''}/status/${id}` });
 
         if (type === 'likes') {
           control.click();
@@ -1342,6 +1616,44 @@ function runCleanupWorker(mode, type, selectedItems, account, performanceMode, r
             updateOverlay();
           }
           await sleep(stepDelay(650));
+        } else if (type === 'media' && replyScope === 'photo') {
+          control.click();
+          let dialog = null;
+          let modalCaret = null;
+          for (let w = 0; w < 14; w++) {
+            dialog = document.querySelector('[role="dialog"], [aria-modal="true"]');
+            modalCaret = dialog?.querySelector('[data-testid="caret"]') || null;
+            if (modalCaret && modalCaret.offsetParent !== null) break;
+            await sleep(stepDelay(160));
+          }
+          if (modalCaret) {
+            const modalArticle = dialog?.querySelector('article[data-testid="tweet"]');
+            const modalDate = modalArticle?.querySelector('time')?.getAttribute('datetime') || snap?.date || '';
+            const modalText = modalArticle?.querySelector('[data-testid="tweetText"]')?.textContent || snap?.text || '';
+            modalCaret.click();
+            await sleep(stepDelay(500));
+            if (await clickDeleteMenu()) {
+              await sleep(stepDelay(450));
+              if (await clickConfirm('confirmationSheetConfirm')) {
+                X.backup.media.push({
+                  id, date: modalDate, text: modalText, author: snap?.author || me || '',
+                  url: snap?.url || `/${me || ''}/status/${id}`, mediaKind: 'photo',
+                  action: 'deleted_photo', actionAt: new Date().toISOString()
+                });
+                X.succeededIds.add(id);
+                X.successCount++;
+                updateOverlay();
+              }
+            }
+          }
+          await sleep(stepDelay(700));
+          const stillOpen = document.querySelector('[role="dialog"], [aria-modal="true"]');
+          if (stillOpen) {
+            const closeBtn = stillOpen.querySelector('[data-testid="app-bar-close"]');
+            if (closeBtn) closeBtn.click();
+            else document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
+            await sleep(stepDelay(350));
+          }
         } else {
           control.click();
           await sleep(stepDelay(500));
@@ -1352,10 +1664,12 @@ function runCleanupWorker(mode, type, selectedItems, account, performanceMode, r
               const row = {
                 id, date: snap?.date || '', text: snap?.text || '', author: snap?.author || me || '',
                 url: snap?.url || '', classification: snap?.classification || '',
-                action: type === 'replies' && !standalone ? 'deleted_reply' : 'deleted',
+                ...(type === 'media' ? { mediaKind: 'video' } : {}),
+                action: type === 'media' ? 'deleted_video' : type === 'replies' && !standalone ? 'deleted_reply' : 'deleted',
                 actionAt: new Date().toISOString()
               };
-              if (type === 'replies' && !standalone) X.backup.replies.push(row);
+              if (type === 'media') X.backup.media.push(row);
+              else if (type === 'replies' && !standalone) X.backup.replies.push(row);
               else X.backup.tweets.push(row);
               X.succeededIds.add(id);
               X.successCount++;
@@ -1415,9 +1729,9 @@ function updateTabWarning() {
 }
 
 function sortOptionsForType() {
-  return isFollowingType()
-    ? [['newest', 'Default order'], ['az', 'A – Z'], ['notback', 'Not following back']]
-    : [['newest', 'Newest'], ['oldest', 'Oldest'], ['likes', 'Most liked']];
+  if (isFollowingType()) return [['newest', 'Default order'], ['az', 'A – Z'], ['notback', 'Not following back']];
+  if (isPhotoMediaView()) return [['newest', 'Default order']];
+  return [['newest', 'Newest'], ['oldest', 'Oldest'], ['likes', 'Most liked']];
 }
 
 function renderSortMenu() {
@@ -1453,21 +1767,33 @@ function renderSortMenu() {
 
 function syncToolbarForType() {
   const isFollow = isFollowingType();
-  $('postChips').hidden = isFollow;
+  const isPhotoGrid = isPhotoMediaView();
+  $('postChips').hidden = isFollow || isPhotoGrid;
   $('followingChips').hidden = !isFollow;
-  $('postFilterFields').hidden = isFollow;
+  $('postFilterFields').hidden = isFollow || isPhotoGrid;
   $('followingFilterFields').hidden = !isFollow;
-  $('resultSearch').placeholder = isFollow ? 'Filter by name, @handle, or bio…' : 'Filter by keyword or @author…';
+  $('filterToggle').hidden = isPhotoGrid;
+  if (isPhotoGrid) {
+    $('filterDrawer').hidden = true;
+    $('filterToggle').setAttribute('aria-expanded', 'false');
+  }
+  $('resultSearch').placeholder = isFollow
+    ? 'Filter by name, @handle, or bio…'
+    : isPhotoGrid ? 'Filter by alt text or status ID…' : 'Filter by keyword or @author…';
   renderSortMenu();
 }
 
 function syncIdleViewForType() {
   const type = currentType;
   const isReplies = type === 'replies';
+  const isMedia = isMediaType(type);
+  const isPhotoGrid = isMedia && selectedMediaScope() === 'photo';
   const isFollow = isFollowingType(type);
   $('replyScope').hidden = !isReplies;
   $('replyScopeNote').hidden = !(isReplies && selectedReplyScope() === 'all');
-  $('prescanDateChips').hidden = isFollow;
+  $('mediaScope').hidden = !isMedia;
+  $('prescanBox').hidden = isPhotoGrid;
+  $('prescanDateChips').hidden = isFollow || isPhotoGrid;
   $('prescanKeyword').placeholder = isFollow ? 'Name, @handle, or bio…' : 'Keyword or @author…';
 
   const noun = typeNoun(type, 2);
@@ -1500,8 +1826,11 @@ function syncIdleViewForType() {
     const tips = {
       tweets: 'Scan your profile to preview, filter by date or likes, and choose which tweets to delete.',
       replies: 'Scan your replies tab to review threads and pick only the replies you want removed.',
+      media: selectedMediaScope() === 'video'
+        ? 'Scan your video posts to preview thumbnails and choose which videos to delete.'
+        : 'Scan your photo grid to preview thumbnails and delete selected photo posts in place.',
       likes: 'Scan your likes to search by keyword or date and unlike selected posts.',
-      reposts: 'Scan your timeline to review reposts and undo only the ones you choose.',
+      reposts: 'Scan your reposts tab to review reposts and undo only the ones you choose.',
       unfollow: 'Scan your following list to find one-way follows and protect favorites before unfollowing.'
     };
     $('firstScanTip').textContent = tips[type] || tips.tweets;
@@ -1512,7 +1841,7 @@ function openSettings(scrollToId = null) {
   settingsOpen = true;
   $('openSettingsBtn').classList.add('active');
   $('settingsNewDot').hidden = true;
-  const ver = chrome.runtime.getManifest?.().version || '1.5.2';
+  const ver = chrome.runtime.getManifest?.().version || '1.6.0';
   chrome.storage.local.set({ lastSeenSettingsVersion: ver }).catch(() => {});
   $('headerBrand').hidden = true;
   $('settingsBackBtn').hidden = false;
@@ -1795,7 +2124,7 @@ function computeFilteredAndSorted() {
 
   const list = items.filter(item => {
     if (query) {
-      const hay = [item.text, item.displayName, item.username, item.author, item.bio, item.replyingTo].filter(Boolean).join(' ').toLowerCase();
+      const hay = [item.id, item.text, item.displayName, item.username, item.author, item.bio, item.replyingTo].filter(Boolean).join(' ').toLowerCase();
       if (!hay.includes(query)) return false;
     }
     if (isFollow) {
@@ -1804,6 +2133,7 @@ function computeFilteredAndSorted() {
       if (hideProtected && whitelist.has((item.username || item.id || '').toLowerCase())) return false;
       return true;
     }
+    if (isPhotoMediaView()) return true;
     const time = item.date ? new Date(item.date).getTime() : null;
     if (from && (!time || time < from)) return false;
     if (to && (!time || time > to)) return false;
@@ -1823,7 +2153,7 @@ function computeFilteredAndSorted() {
   if (isFollow) {
     if (sort === 'az') list.sort((a, b) => (a.displayName || a.username || '').localeCompare(b.displayName || b.username || ''));
     else if (sort === 'notback') list.sort((a, b) => Number(!!a.followsYou) - Number(!!b.followsYou));
-  } else {
+  } else if (!isPhotoMediaView()) {
     if (sort === 'oldest') list.sort((a, b) => (new Date(a.date || 0).getTime()) - (new Date(b.date || 0).getTime()));
     else if (sort === 'likes') list.sort((a, b) => (b.likes || 0) - (a.likes || 0));
     else list.sort((a, b) => (new Date(b.date || 0).getTime()) - (new Date(a.date || 0).getTime()));
@@ -1891,12 +2221,13 @@ function toggleItemSelection(item, index, shiftKey) {
 
 function createRowElement(item, index) {
   const isFollow = item.type === 'account';
+  const isMediaItem = item.mediaKind === 'photo' || item.mediaKind === 'video';
   const handleLower = (item.username || item.id || '').toLowerCase();
   const isProtected = isFollow && whitelist.has(handleLower);
   const selectable = isSelectable(item);
 
   const card = document.createElement('div');
-  card.className = `row-card${isFollow ? ' account-row' : ''}${item.selected && selectable ? ' selected' : ''}${isProtected ? ' protected' : ''}${!selectable && !isProtected ? ' unverified' : ''}`;
+  card.className = `row-card${isFollow ? ' account-row' : ''}${isMediaItem ? ' media-row' : ''}${item.selected && selectable ? ' selected' : ''}${isProtected ? ' protected' : ''}${!selectable && !isProtected ? ' unverified' : ''}`;
   card.setAttribute('role', 'option');
   card.setAttribute('aria-selected', item.selected && selectable ? 'true' : 'false');
   if (isProtected) card.title = 'Skipped during unfollow';
@@ -1940,6 +2271,31 @@ function createRowElement(item, index) {
       av.textContent = (item.displayName || item.username || '?').slice(0, 2);
     }
     card.appendChild(av);
+  } else if (isMediaItem) {
+    const thumb = document.createElement('div');
+    thumb.className = 'row-thumb';
+    if (item.thumbUrl) {
+      const img = document.createElement('img');
+      img.alt = '';
+      img.loading = 'lazy';
+      img.referrerPolicy = 'no-referrer';
+      img.src = item.thumbUrl;
+      img.addEventListener('error', () => {
+        img.remove();
+        thumb.innerHTML = '<svg class="icon" aria-hidden="true"><use href="#i-image"/></svg>';
+      });
+      thumb.appendChild(img);
+    } else {
+      thumb.innerHTML = '<svg class="icon" aria-hidden="true"><use href="#i-image"/></svg>';
+    }
+    if (item.mediaKind === 'video') {
+      const play = document.createElement('span');
+      play.className = 'row-thumb-play';
+      play.setAttribute('aria-hidden', 'true');
+      play.textContent = '▶';
+      thumb.appendChild(play);
+    }
+    card.appendChild(thumb);
   }
 
   const body = document.createElement('div');
@@ -1989,7 +2345,7 @@ function createRowElement(item, index) {
   } else {
     const text = document.createElement('div');
     text.className = 'row-text';
-    text.textContent = item.text || '(No text content)';
+    text.textContent = item.text || (item.mediaKind === 'photo' ? 'Photo post' : item.mediaKind === 'video' ? 'Video post' : '(No text content)');
     body.appendChild(text);
 
     const meta = document.createElement('div');
@@ -1999,7 +2355,11 @@ function createRowElement(item, index) {
       ? (item.replyingTo ? `Replying to ${item.replyingTo}` : 'Reply')
       : item.type === 'like' && item.author
         ? `@${item.author}`
-        : item.type;
+        : item.mediaKind === 'photo'
+          ? `Photo · #${String(item.id || '').slice(-6)}`
+          : item.mediaKind === 'video'
+            ? 'Video'
+            : item.type;
     meta.append(document.createTextNode([dateStr, contextStr].filter(Boolean).join(' · ')));
 
     if (item.likes > 0 || $('minLikes').value !== '') {
@@ -2008,7 +2368,7 @@ function createRowElement(item, index) {
       lk.textContent = `♥ ${(item.likes || 0).toLocaleString()}`;
       meta.appendChild(lk);
     }
-    if (item.hasMedia) {
+    if (item.hasMedia && !isMediaItem) {
       const md = document.createElement('span');
       md.className = 'pill';
       md.textContent = 'Media';
@@ -2104,39 +2464,42 @@ async function startScan() {
     showError('A cleanup job is currently running. Stop it before starting a scan.');
     return;
   }
-  activeAccount = await detectAccount(activeTab);
-  renderAccount(activeAccount, !!activeTab);
+  const detected = await detectAccount(activeTab);
+  renderAccount(detected, !!activeTab);
   if (!activeTab || !activeAccount) {
-    showError('Open x.com and sign in before scanning.');
+    showError(detected?._status === 'error'
+      ? 'Could not access the X tab. Reload x.com and try again.'
+      : 'Open x.com and sign in before scanning.');
     return;
   }
 
   const type = currentType;
-  const scope = selectedReplyScope();
+  const scope = type === 'media' ? selectedMediaScope() : selectedReplyScope();
   const cache = currentCache(type);
   cache.items = [];
   const profileStats = activeAccount?.stats || {};
-  // Exact total for Following; approx upper bound for Posts + replies only; none for Tweets/Replies-only/Reposts/Likes
+  // Exact total for Following; approx upper bound for Posts + replies only; none for Tweets/Replies-only/Media/Reposts/Likes
   cache.estimatedTotal =
     type === 'unfollow' ? (profileStats.following ?? null)
       : (type === 'replies' && scope === 'all') ? (profileStats.posts ?? null)
         : null;
   cache.scannedAt = Date.now();
-  cache.replyScope = scope;
+  cache.replyScope = type === 'replies' ? scope : cache.replyScope;
+  if (type === 'media') cache.mediaScope = scope;
   cache.scanState = 'idle';
 
   // Carry over pre-scan filters cleanly
   resetFilters();
   const preKw = $('prescanKeyword').value.trim();
-  if (preKw) $('resultSearch').value = preKw;
-  if (!isFollowingType(type) && preDatePreset !== 'all') {
+  if (preKw && !(type === 'media' && scope === 'photo')) $('resultSearch').value = preKw;
+  if (!isFollowingType(type) && !(type === 'media' && scope === 'photo') && preDatePreset !== 'all') {
     datePreset = preDatePreset;
     document.querySelectorAll('#postChips .chip').forEach(c => {
       c.setAttribute('aria-pressed', c.dataset.preset === datePreset ? 'true' : 'false');
     });
   }
 
-  await ensurePreviewPage(type);
+  await ensurePreviewPage(type, type === 'media' ? scope : null);
   activeTab = await findActiveXTab();
   const refreshed = await detectAccount(activeTab);
   if (refreshed?.username) {
@@ -2483,6 +2846,7 @@ async function downloadLastJobCsv() {
   const addUser = (t, item) => rows.push([t, item.actionAt || '', '', item.username || '', item.displayName || '', item.profileUrl || '', item.action || '', item.actionAt || '']);
   (job.backup.tweets || []).forEach(i => addPost('Deleted tweet', i));
   (job.backup.replies || []).forEach(i => addPost('Deleted reply', i));
+  (job.backup.media || []).forEach(i => addPost(i.mediaKind === 'video' ? 'Deleted video' : 'Deleted photo', i));
   (job.backup.unliked || []).forEach(i => addPost('Unliked post', i));
   (job.backup.unreposted || []).forEach(i => addPost('Removed repost', i));
   (job.backup.unfollows || []).forEach(i => addUser('Unfollowed', i));
@@ -2576,8 +2940,10 @@ async function startConfirmedCleanup() {
 
   activeTab = await findActiveXTab();
   const currentAccount = await detectAccount(activeTab);
-  if (!currentAccount || currentAccount.username.toLowerCase() !== activeAccount?.username?.toLowerCase()) {
-    showError('The active X account changed. Switch back to the original account first.');
+  if (!currentAccount?.username || currentAccount.username.toLowerCase() !== activeAccount?.username?.toLowerCase()) {
+    showError(currentAccount?._status === 'error'
+      ? 'Could not access the X tab. Reload x.com and try again.'
+      : 'The active X account changed. Switch back to the original account first.');
     return;
   }
 
@@ -2586,15 +2952,19 @@ async function startConfirmedCleanup() {
     activeScanType = null;
   }
   await chrome.storage.local.remove(['activePreviewSession']);
-  await ensurePreviewPage(type);
+  const activeScope = type === 'media'
+    ? (sheetMode === 'bulkAll' ? selectedMediaScope() : (currentCache('media')?.mediaScope || selectedMediaScope()))
+    : (currentCache(type).replyScope || selectedReplyScope());
+  await ensurePreviewPage(type, type === 'media' ? activeScope : null);
   activeTab = await findActiveXTab();
 
   const action =
     type === 'replies' ? 'deleteReplies'
-      : type === 'likes' ? 'unlike'
-        : type === 'reposts' ? 'unrepost'
-          : type === 'unfollow' ? 'bulkUnfollow'
-            : 'delete';
+      : type === 'media' ? 'deleteMedia'
+        : type === 'likes' ? 'unlike'
+          : type === 'reposts' ? 'unrepost'
+            : type === 'unfollow' ? 'bulkUnfollow'
+              : 'delete';
   await chrome.storage.local.set({ activeAction: action, activeTabId: activeTab.id, startTime: Date.now() });
 
   const res = await executeInTab(runCleanupWorker, [
@@ -2603,7 +2973,7 @@ async function startConfirmedCleanup() {
     targetItems,
     activeAccount,
     $('previewPerformance').checked,
-    currentCache(type).replyScope || selectedReplyScope(),
+    activeScope,
     speed,
     Array.from(whitelist)
   ]);
@@ -2675,8 +3045,9 @@ function syncThemeUI(mode = currentStoredTheme()) {
 
 // === Bootstrap ===
 
-async function syncAccountStatus() {
+async function syncAccountStatus(fromRetry = false) {
   if (cleanupRunning || activeScanType) return;
+  if (!fromRetry) clearAccountRetry();
   activeTab = await findActiveXTab();
   const account = activeTab ? await detectAccount(activeTab) : null;
   renderAccount(account, !!activeTab);
@@ -2687,8 +3058,8 @@ async function initialize() {
   await restoreSession();
 
   activeTab = await findActiveXTab();
-  activeAccount = activeTab ? await detectAccount(activeTab) : null;
-  renderAccount(activeAccount, !!activeTab);
+  const detected = activeTab ? await detectAccount(activeTab) : null;
+  renderAccount(detected, !!activeTab);
 
   const settings = await chrome.storage.local.get(['performanceMode', 'defaultAutoCsv', 'defaultSpeed', 'activeAction', 'lastSeenSettingsVersion', 'lastSeenChangelogVersion']);
   $('previewPerformance').checked = settings.performanceMode ?? true;
@@ -2698,7 +3069,7 @@ async function initialize() {
   const defSpeedRadio = document.querySelector(`input[name="defaultSpeed"][value="${defaultCleanupSpeed}"]`);
   if (defSpeedRadio) defSpeedRadio.checked = true;
 
-  const currentVer = chrome.runtime.getManifest?.().version || '1.5.2';
+  const currentVer = chrome.runtime.getManifest?.().version || '1.6.0';
   const hasNewSettings = settings.lastSeenSettingsVersion !== currentVer;
   const hasNewChangelog = settings.lastSeenChangelogVersion !== currentVer;
   $('settingsNewDot').hidden = !hasNewSettings;
@@ -2725,7 +3096,8 @@ async function initialize() {
       c.items = state.newItems || [];
       c.estimatedTotal = state.estimatedTotal ?? c.estimatedTotal;
       c.scannedAt = Date.now();
-      c.replyScope = state.replyScope || 'fast';
+      if (state.type === 'media') c.mediaScope = state.replyScope === 'video' ? 'video' : 'photo';
+      else c.replyScope = state.replyScope || 'fast';
       if (state.running && !state.paused) {
         activeScanType = state.type;
         c.scanState = 'idle';
@@ -2759,10 +3131,11 @@ document.addEventListener('DOMContentLoaded', () => {
   $('openSettingsBtn').addEventListener('click', () => (settingsOpen ? closeSettings() : openSettings()));
   $('settingsBackBtn').addEventListener('click', closeSettings);
   $('openXButton').addEventListener('click', openX);
-  $('openLangSettings').addEventListener('click', openXLanguageSettings);
-  $('langBannerDismiss').addEventListener('click', () => {
-    langWarningDismissed = true;
-    syncLangBanner();
+  $('recheckAccountBtn').addEventListener('click', async () => {
+    const btn = $('recheckAccountBtn');
+    btn.disabled = true;
+    await syncAccountStatus(false);
+    btn.disabled = false;
   });
   $('previewPerformance').addEventListener('change', () => {
     chrome.storage.local.set({ performanceMode: $('previewPerformance').checked });
@@ -2782,7 +3155,7 @@ document.addEventListener('DOMContentLoaded', () => {
     $('reviewBanner').hidden = true;
   });
   $('settingsChangelogLink').addEventListener('click', () => {
-    const ver = chrome.runtime.getManifest?.().version || '1.5.2';
+    const ver = chrome.runtime.getManifest?.().version || '1.6.0';
     chrome.storage.local.set({ lastSeenChangelogVersion: ver, lastSeenSettingsVersion: ver });
     $('changelogNewPill').hidden = true;
     $('settingsNewDot').hidden = true;
@@ -2828,6 +3201,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
   // Idle controls
   document.querySelectorAll('input[name="replyScope"]').forEach(r => r.addEventListener('change', syncIdleViewForType));
+  document.querySelectorAll('input[name="mediaScope"]').forEach(r => r.addEventListener('change', syncIdleViewForType));
   document.querySelectorAll('#prescanDateChips .chip').forEach(chip => {
     chip.addEventListener('click', () => {
       preDatePreset = chip.dataset.prePreset;
@@ -3004,9 +3378,13 @@ document.addEventListener('DOMContentLoaded', () => {
     if (changes.performanceMode) $('previewPerformance').checked = changes.performanceMode.newValue ?? true;
     if (changes.jobHistory || changes.reviewPromptStatus) renderReviewBanner();
   });
-  chrome.tabs.onActivated.addListener(syncAccountStatus);
+  chrome.tabs.onActivated.addListener(() => syncAccountStatus(false));
   chrome.tabs.onUpdated.addListener((tabId, info) => {
-    if (info.status === 'complete' || info.url) syncAccountStatus();
+    if (info.status === 'complete' || info.url) syncAccountStatus(false);
+  });
+  window.addEventListener('focus', () => syncAccountStatus(false));
+  document.addEventListener('visibilitychange', () => {
+    if (!document.hidden) syncAccountStatus(false);
   });
 
   initialize();

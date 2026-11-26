@@ -16,14 +16,11 @@
   </a>
 </p>
 
-> [!NOTE]
-> Set X's display language to **English** before running cleanups (**Settings → Accessibility, display, and languages → Languages → Display language**).
-
 **X Bulk Clean** is a Chrome extension for quickly cleaning up your X account. Bulk delete tweets, replies, reposts, and likes, or mass unfollow accounts without managing items one by one. It runs directly in your browser for a simple, fast, and privacy-friendly cleanup experience.
 
 ## Features
 
-- **Direct Side Panel workflow** with 5 unified tabs: **Tweets**, **Replies**, **Likes**, **Reposts**, and **Following**
+- **Direct Side Panel workflow** with 6 unified tabs: **Tweets**, **Replies**, **Reposts**, **Media (Photos & Videos)**, **Likes**, and **Following**
 - **Preview & Select before deleting**: read-only scans stream items live into the side panel so you can review and choose exactly what to remove
 - **Flexible reply scanning**: scan clearly identified replies only, or **Posts + replies** in a single pass for manual review of possible orphan replies
 - **Smart filters & sorting**: quick date chips (**All time**, **Last 30d**, **Last 90d**, **Older than 1 year**), custom **From/To** dates, keyword/`@author`/bio search, **Min. likes**, **Media only**, **Has links**, Following filters (**Doesn't follow back**, **No profile photo**), and sorting (**Newest**, **Oldest**, **Most liked**)
@@ -38,7 +35,7 @@
 ## Requirements
 
 - **Google Chrome 116 or newer** (required for the Side Panel API)
-- **X display language set to English** — some actions (such as deleting posts/replies and detecting replies) currently rely on English UI labels on X. You can switch this temporarily under **Settings → Accessibility, display, and languages → Languages → Display language** on X.
+- Works across **all X display languages** (language-independent selectors)
 
 ## Install from Chrome Web Store
 

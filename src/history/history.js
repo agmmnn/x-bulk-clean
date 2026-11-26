@@ -1,5 +1,6 @@
 const ACTION_LABELS = {
   delete: 'Deleted tweets',
+  deleteMedia: 'Deleted media',
   unlike: 'Cleared likes',
   unrepost: 'Removed reposts',
   deleteReplies: 'Deleted replies',
@@ -62,6 +63,7 @@ function flattenBackup(backup = {}) {
   });
   (backup.tweets || []).forEach(item => addPost('Deleted tweet', item));
   (backup.replies || []).forEach(item => addPost('Deleted reply', item));
+  (backup.media || []).forEach(item => addPost(item.mediaKind === 'video' ? 'Deleted video' : 'Deleted photo', item));
   (backup.unliked || []).forEach(item => addPost('Unliked post', item));
   (backup.unreposted || []).forEach(item => addPost('Removed repost', item));
   (backup.follows || []).forEach(item => addUser('Followed', item));

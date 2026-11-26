@@ -190,6 +190,7 @@
     }
 
     *, *::before, *::after { box-sizing: border-box; }
+    [hidden] { display: none !important; }
 
     html, body {
       margin: 0;
@@ -539,10 +540,10 @@
     .profile-card.compact .profile-handle { color: var(--ink); font-weight: 600; }
     .profile-card.compact .profile-stats-collapse { grid-template-rows: 0fr; opacity: 0; }
 
-    /* Single-row 5-tab bar with count badges & 320px icon-only adaptation */
+    /* Single-row 6-tab bar with count badges & compact adaptation */
     .tablist {
       display: flex;
-      gap: 3px;
+      gap: 2px;
       padding: 0 var(--sp-2);
       overflow-x: auto;
       scrollbar-width: none;
@@ -554,16 +555,16 @@
       position: relative;
       flex: 1 0 auto;
       min-block-size: 36px;
-      padding: 0 var(--sp-2) 2px;
+      padding: 0 7px 2px;
       display: inline-flex;
       align-items: center;
       justify-content: center;
-      gap: 5px;
+      gap: 4px;
       border: 0;
       border-radius: var(--r-btn) var(--r-btn) 0 0;
       background: transparent;
       color: var(--ink-meta);
-      font-size: var(--fs-meta);
+      font-size: 11.5px;
       font-weight: 600;
       white-space: nowrap;
       scroll-snap-align: start;
@@ -1042,12 +1043,13 @@
       flex: 1 1 auto;
       min-height: 0;
       overflow-y: auto;
+      overflow-x: hidden;
       padding: var(--sp-3);
       position: relative;
       display: flex;
       flex-direction: column;
     }
-    .scroll-body > * { flex-shrink: 0; }
+    .scroll-body > * { flex-shrink: 0; min-width: 0; }
 
     .error-banner {
       margin-bottom: var(--sp-3);
@@ -1060,63 +1062,6 @@
     }
     .error-banner[hidden] { display: none; }
 
-    /* Non-English X Display Language Notice */
-    .lang-banner {
-      margin-bottom: var(--sp-3);
-      padding: 10px 10px 10px 12px;
-      border-radius: var(--r-card);
-      background: var(--amber-soft);
-      border: 1px solid var(--amber-border);
-      display: flex;
-      align-items: flex-start;
-      gap: 9px;
-      font-size: var(--fs-meta);
-      color: var(--ink);
-    }
-    .lang-banner[hidden] { display: none; }
-    .lang-banner-ico {
-      width: 16px;
-      height: 16px;
-      margin-top: 1px;
-      color: var(--amber);
-      flex: none;
-    }
-    .lang-banner-body {
-      min-width: 0;
-      flex: 1;
-      display: grid;
-      gap: 6px;
-    }
-    .lang-banner-body p {
-      margin: 0;
-      line-height: 1.45;
-      color: var(--ink-secondary);
-      text-wrap: pretty;
-    }
-    .lang-banner-body strong { color: var(--ink); font-weight: 650; }
-    .lang-banner-link {
-      justify-self: start;
-      padding: 0;
-      border: 0;
-      background: transparent;
-      display: inline-flex;
-      align-items: center;
-      gap: 4px;
-      color: var(--amber);
-      font-size: var(--fs-meta);
-      font-weight: 650;
-      cursor: pointer;
-    }
-    .lang-banner-link .icon { width: 12px; height: 12px; }
-    .lang-banner-link:hover { text-decoration: underline; }
-    .lang-banner-close {
-      min-inline-size: 24px;
-      min-block-size: 24px;
-      margin: -2px -2px 0 0;
-      color: var(--ink-meta);
-    }
-    .lang-banner-close .icon { width: 14px; height: 14px; }
-
     /* Empty Account State */
     .empty-account {
       margin-bottom: var(--sp-3);
@@ -1127,7 +1072,9 @@
     }
     .empty-account[hidden] { display: none; }
     .empty-account h2 { margin: 0 0 var(--sp-1); font-size: var(--fs-title); font-weight: 700; }
-    .empty-account p { margin: 0 0 var(--sp-3); color: var(--ink-secondary); font-size: var(--fs-body); }
+    .empty-account p { margin: 0 0 var(--sp-3); color: var(--ink-secondary); font-size: var(--fs-body); line-height: 1.45; }
+    .empty-account-actions { display: grid; grid-template-columns: 1fr auto; gap: var(--sp-2); }
+    .empty-account-actions .btn-secondary { width: auto; padding: 0 var(--sp-3); min-block-size: 42px; }
 
     /* Primary & Secondary full-width buttons */
     .btn-primary {
@@ -1450,35 +1397,63 @@
 
     /* Review Banner (CWS) */
     .review-banner {
-      padding: var(--sp-3);
+      position: relative;
+      overflow: hidden;
+      padding: 13px 14px 14px;
       border-radius: var(--r-card);
-      background: var(--amber-soft);
-      border: 1px solid var(--amber-border);
+      background:
+        radial-gradient(120% 130% at 0% 0%, rgba(99, 102, 241, 0.22), transparent 58%),
+        radial-gradient(110% 120% at 100% 100%, rgba(236, 72, 153, 0.20), transparent 58%),
+        radial-gradient(85% 95% at 90% 10%, rgba(251, 191, 36, 0.16), transparent 55%),
+        var(--surface);
+      border: 1px solid rgba(129, 140, 248, 0.36);
+      box-shadow: 0 8px 24px rgba(99, 102, 241, 0.12);
       display: grid;
-      gap: var(--sp-2);
+      gap: 9px;
     }
     .review-banner[hidden] { display: none; }
     .review-banner-head { display: flex; align-items: center; justify-content: space-between; gap: var(--sp-2); }
-    .review-banner-title { font-size: var(--fs-body); font-weight: 700; color: var(--ink); }
-    .review-banner-copy { margin: 0; font-size: var(--fs-meta); color: var(--ink-secondary); }
+    .review-banner-heading { display: inline-flex; align-items: center; gap: 7px; min-width: 0; }
+    .review-stars {
+      display: inline-flex;
+      align-items: center;
+      gap: 1px;
+      color: #f59e0b;
+      font-size: 13px;
+      line-height: 1;
+      letter-spacing: 0.5px;
+      filter: drop-shadow(0 0 6px rgba(251, 191, 36, 0.45));
+    }
+    .review-banner-title { font-size: var(--fs-body); font-weight: 750; color: var(--ink); letter-spacing: -0.01em; }
+    .review-banner-copy { margin: 0; font-size: var(--fs-meta); color: var(--ink-secondary); line-height: 1.45; }
     .review-banner-cta {
-      min-block-size: 34px;
+      min-block-size: 38px;
+      padding: 0 14px;
       display: inline-flex;
       align-items: center;
       justify-content: center;
-      gap: 6px;
+      gap: 7px;
       border-radius: var(--r-btn);
-      background: var(--cta-bg);
-      color: var(--cta-ink);
-      font-size: var(--fs-meta);
-      font-weight: 650;
+      background: linear-gradient(135deg, #4f46e5 0%, #7c3aed 55%, #db2777 100%);
+      color: #ffffff;
+      font-size: var(--fs-body);
+      font-weight: 700;
+      letter-spacing: -0.01em;
       text-decoration: none;
+      box-shadow: 0 6px 16px rgba(124, 58, 237, 0.30);
+      transition: transform 140ms var(--ease), box-shadow 160ms ease, filter 160ms ease;
+    }
+    .review-banner-cta .icon { width: 15px; height: 15px; fill: #fde047; stroke: #fde047; }
+    .review-banner-cta:active { transform: scale(0.985); }
+    @media (hover: hover) and (pointer: fine) {
+      .review-banner-cta:hover { transform: translateY(-1px); filter: brightness(1.07); box-shadow: 0 8px 20px rgba(124, 58, 237, 0.42); }
     }
 
     /* Virtualized / content-visibility List Container */
-    .list-view { display: grid; gap: var(--sp-2); }
+    .list-view { display: grid; grid-template-columns: minmax(0, 1fr); gap: var(--sp-2); min-width: 0; }
     .list-view[hidden] { display: none; }
-    .virtual-window { display: grid; gap: var(--sp-2); }
+    .virtual-spacer { min-width: 0; }
+    .virtual-window { display: grid; grid-template-columns: minmax(0, 1fr); gap: var(--sp-2); min-width: 0; }
 
     /* List Row — hugs content tightly with zero dead bottom space */
     .row-card {
@@ -1486,6 +1461,9 @@
       display: flex;
       align-items: flex-start;
       gap: var(--sp-2);
+      min-width: 0;
+      max-width: 100%;
+      overflow: hidden;
       border-radius: var(--r-card);
       background: var(--bg);
       border: 1px solid var(--border);
@@ -1534,6 +1512,37 @@
       border: 1px solid var(--border);
     }
     .row-avatar img { width: 100%; height: 100%; object-fit: cover; }
+    .row-thumb {
+      position: relative;
+      width: 48px;
+      height: 48px;
+      flex: 0 0 48px;
+      border-radius: 8px;
+      overflow: hidden;
+      background: var(--surface-hover);
+      border: 1px solid var(--border);
+      display: grid;
+      place-items: center;
+      color: var(--ink-meta);
+    }
+    .row-thumb img { width: 100%; height: 100%; object-fit: cover; display: block; }
+    .row-thumb-play {
+      position: absolute;
+      right: 4px;
+      bottom: 4px;
+      width: 18px;
+      height: 18px;
+      border-radius: 999px;
+      background: rgba(15, 23, 42, 0.8);
+      color: #fff;
+      display: grid;
+      place-items: center;
+      font-size: 9px;
+      line-height: 1;
+      padding-left: 1px;
+    }
+    .row-card.media-row { align-items: center; contain-intrinsic-size: auto 66px; }
+    .row-card.media-row .row-check { margin-top: 0; }
     .row-body { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 3px; }
     .row-text {
       font-size: var(--fs-body);
@@ -2055,6 +2064,7 @@
     <symbol id="i-github" viewBox="0 0 24 24"><path d="M12 .7A11.3 11.3 0 0 0 8.4 22.7c.6.1.8-.3.8-.6v-2.1c-3.4.7-4.1-1.4-4.1-1.4-.6-1.4-1.3-1.8-1.3-1.8-1.1-.7.1-.7.1-.7 1.2.1 1.8 1.2 1.8 1.2 1.1 1.8 2.8 1.3 3.5 1 .1-.8.4-1.3.8-1.6-2.7-.3-5.5-1.3-5.5-5.9 0-1.3.5-2.4 1.2-3.2-.1-.3-.5-1.5.1-3.1 0 0 1-.3 3.3 1.2a11.4 11.4 0 0 1 6 0c2.3-1.5 3.3-1.2 3.3-1.2.6 1.6.2 2.8.1 3.1.8.8 1.2 1.9 1.2 3.2 0 4.6-2.8 5.6-5.5 5.9.4.4.8 1.1.8 2.2v3.2c0 .3.2.7.8.6A11.3 11.3 0 0 0 12 .7Z"/></symbol>
     <symbol id="i-file" viewBox="0 0 24 24"><path d="M4 4h16v16H4zM8 8h8M8 12h8M8 16h5"/></symbol>
     <symbol id="i-message" viewBox="0 0 24 24"><path d="M21 15a4 4 0 0 1-4 4H8l-5 3V7a4 4 0 0 1 4-4h10a4 4 0 0 1 4 4Z"/></symbol>
+    <symbol id="i-image" viewBox="0 0 24 24"><rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="8.5" cy="8.5" r="1.5"/><path d="m21 15-5-5L5 21"/></symbol>
     <symbol id="i-heart" viewBox="0 0 24 24"><path d="M19.5 12.6 12 20l-7.5-7.4A5.5 5.5 0 0 1 12 4.6a5.5 5.5 0 0 1 7.5 8Z"/></symbol>
     <symbol id="i-repeat" viewBox="0 0 24 24"><path d="m17 1 4 4-4 4M3 11V9a4 4 0 0 1 4-4h14M7 23l-4-4 4-4M21 13v2a4 4 0 0 1-4 4H3"/></symbol>
     <symbol id="i-user-minus" viewBox="0 0 24 24"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M16 11h6"/></symbol>
@@ -2070,7 +2080,6 @@
     <symbol id="i-arrow-left" viewBox="0 0 24 24"><path d="M19 12H5M12 19l-7-7 7-7"/></symbol>
     <symbol id="i-bug" viewBox="0 0 24 24"><path d="M8 2l1.88 1.88M14.12 3.88 16 2M9 7.13v-1a3 3 0 1 1 6 0v1"/><path d="M12 20c-3.3 0-6-2.7-6-6v-3a4 4 0 0 1 4-4h4a4 4 0 0 1 4 4v3c0 3.3-2.7 6-6 6"/><path d="M12 20v-9M6.53 9C4.6 8.8 3 7.1 3 5M6 13H2M3 21c0-2.1 1.7-3.9 3.8-4M20.97 5c0 2.1-1.6 3.8-3.5 4M22 13h-4M17.2 17c2.1.1 3.8 1.9 3.8 4"/></symbol>
     <symbol id="i-verified" viewBox="0 0 24 24"><path d="M22.25 12c0-1.43-.88-2.67-2.19-3.34.46-1.39.2-2.9-.81-3.91s-2.52-1.27-3.91-.81c-.66-1.31-1.91-2.19-3.34-2.19s-2.67.88-3.33 2.19c-1.4-.46-2.91-.2-3.92.81s-1.26 2.52-.8 3.91c-1.31.67-2.2 1.91-2.2 3.34s.89 2.67 2.2 3.34c-.46 1.39-.21 2.9.8 3.91s2.52 1.26 3.91.81c.67 1.31 1.91 2.19 3.34 2.19s2.68-.88 3.34-2.19c1.39.45 2.9.2 3.91-.81s1.27-2.52.81-3.91c1.31-.67 2.19-1.91 2.19-3.34zm-11.71 4.2L6.8 12.46l1.41-1.42 2.26 2.26 4.8-5.23 1.47 1.36-6.2 6.77z"/></symbol>
-    <symbol id="i-globe" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M3 12h18M12 3a14 14 0 0 1 0 18M12 3a14 14 0 0 0 0 18"/></symbol>
     <symbol id="i-x" viewBox="0 0 24 24"><path d="M18 6 6 18M6 6l12 12"/></symbol>
   </svg>
 
@@ -2139,11 +2148,14 @@
         <button id="tab-replies" class="tab-btn" type="button" role="tab" data-type="replies" aria-selected="false" tabindex="-1" aria-label="Replies" title="Replies">
           <svg class="icon" aria-hidden="true"><use href="#i-message"/></svg><span class="tab-label">Replies</span><span id="badge-replies" class="tab-badge" hidden>0</span>
         </button>
-        <button id="tab-likes" class="tab-btn" type="button" role="tab" data-type="likes" aria-selected="false" tabindex="-1" aria-label="Likes" title="Likes">
-          <svg class="icon" aria-hidden="true"><use href="#i-heart"/></svg><span class="tab-label">Likes</span><span id="badge-likes" class="tab-badge" hidden>0</span>
-        </button>
         <button id="tab-reposts" class="tab-btn" type="button" role="tab" data-type="reposts" aria-selected="false" tabindex="-1" aria-label="Reposts" title="Reposts">
           <svg class="icon" aria-hidden="true"><use href="#i-repeat"/></svg><span class="tab-label">Reposts</span><span id="badge-reposts" class="tab-badge" hidden>0</span>
+        </button>
+        <button id="tab-media" class="tab-btn" type="button" role="tab" data-type="media" aria-selected="false" tabindex="-1" aria-label="Media" title="Media">
+          <svg class="icon" aria-hidden="true"><use href="#i-image"/></svg><span class="tab-label">Media</span><span id="badge-media" class="tab-badge" hidden>0</span>
+        </button>
+        <button id="tab-likes" class="tab-btn" type="button" role="tab" data-type="likes" aria-selected="false" tabindex="-1" aria-label="Likes" title="Likes">
+          <svg class="icon" aria-hidden="true"><use href="#i-heart"/></svg><span class="tab-label">Likes</span><span id="badge-likes" class="tab-badge" hidden>0</span>
         </button>
         <button id="tab-unfollow" class="tab-btn" type="button" role="tab" data-type="unfollow" aria-selected="false" tabindex="-1" aria-label="Following" title="Following">
           <svg class="icon" aria-hidden="true"><use href="#i-user-minus"/></svg><span class="tab-label">Following</span><span id="badge-unfollow" class="tab-badge" hidden>0</span>
@@ -2248,25 +2260,19 @@
     <main id="scrollBody" class="scroll-body">
       <div id="errorBanner" class="error-banner" role="alert" hidden></div>
 
-      <div id="langBanner" class="lang-banner" role="status" hidden>
-        <svg class="icon lang-banner-ico" aria-hidden="true"><use href="#i-globe"/></svg>
-        <div class="lang-banner-body">
-          <p id="langBannerText">Switch X's display language to English so tweet and reply cleanup works properly.</p>
-          <button id="openLangSettings" class="lang-banner-link" type="button">
-            Open X language settings
+      <section id="noAccountEmpty" class="empty-account" hidden>
+        <h2 id="noAccountTitle">Sign in to X to start</h2>
+        <p id="noAccountCopy">No signed-in X account was detected. Open X and sign in to unlock scanning and cleanup tools.</p>
+        <div class="empty-account-actions">
+          <button id="openXButton" class="btn-primary" type="button">
             <svg class="icon" aria-hidden="true"><use href="#i-external"/></svg>
+            Open X
+          </button>
+          <button id="recheckAccountBtn" class="btn-secondary" type="button" title="Check active X tab again">
+            <svg class="icon" aria-hidden="true"><use href="#i-refresh"/></svg>
+            Check again
           </button>
         </div>
-        <button id="langBannerDismiss" class="icon-btn lang-banner-close" type="button" aria-label="Dismiss language notice" title="Dismiss"><svg class="icon" aria-hidden="true"><use href="#i-x"/></svg></button>
-      </div>
-
-      <section id="noAccountEmpty" class="empty-account" hidden>
-        <h2>Sign in to X to start</h2>
-        <p id="noAccountCopy">No signed-in X account was detected. Open X and sign in to unlock scanning and cleanup tools.</p>
-        <button id="openXButton" class="btn-primary" type="button">
-          <svg class="icon" aria-hidden="true"><use href="#i-external"/></svg>
-          Open X
-        </button>
       </section>
 
       <!-- IDLE VIEW -->
@@ -2276,6 +2282,11 @@
           <label><input type="radio" name="replyScope" value="all"><span><strong>Posts + replies</strong>Everything in one scan</span></label>
         </div>
         <div id="replyScopeNote" class="scope-note" hidden>Standalone posts and orphan replies look identical on X. Review carefully before deleting.</div>
+
+        <div id="mediaScope" class="reply-scope" aria-label="Media type" hidden>
+          <label><input type="radio" name="mediaScope" value="photo" checked><span><strong>Photos</strong>Scan your photo grid</span></label>
+          <label><input type="radio" name="mediaScope" value="video"><span><strong>Videos</strong>Scan your video posts</span></label>
+        </div>
 
         <!-- Pre-scan filters -->
         <div id="prescanBox" class="prescan-card">
@@ -2301,11 +2312,14 @@
 
         <aside id="reviewBanner" class="review-banner" aria-label="Chrome Web Store review prompt" hidden>
           <div class="review-banner-head">
-            <span class="review-banner-title">Saved you time?</span>
+            <span class="review-banner-heading">
+              <span class="review-banner-title">Saved you time?</span>
+              <span class="review-stars" aria-hidden="true">★★★★★</span>
+            </span>
             <button id="reviewBannerDismiss" class="icon-btn" type="button" aria-label="Dismiss review prompt" title="Dismiss"><svg class="icon" aria-hidden="true"><use href="#i-x"/></svg></button>
           </div>
           <p id="reviewBannerCopy" class="review-banner-copy">X Bulk Clean is 100% free &amp; open source. A quick review helps others find it.</p>
-          <a id="reviewBannerLink" class="review-banner-cta" href="https://chromewebstore.google.com/detail/bcpkijoolaciolfegopiaifmoedbolgg/reviews" target="_blank" rel="noopener noreferrer">Rate on Chrome Web Store</a>
+          <a id="reviewBannerLink" class="review-banner-cta" href="https://chromewebstore.google.com/detail/bcpkijoolaciolfegopiaifmoedbolgg/reviews" target="_blank" rel="noopener noreferrer"><svg class="icon" aria-hidden="true"><use href="#i-star"/></svg>Rate on Chrome Web Store</a>
         </aside>
       </section>
 
@@ -2421,7 +2435,7 @@
           </div>
         </div>
 
-        <div class="settings-about">X Bulk Clean v1.5.2 · Processed locally in your browser.</div>
+        <div class="settings-about">X Bulk Clean v1.6.0 · Processed locally in your browser.</div>
       </section>
     </main>
 

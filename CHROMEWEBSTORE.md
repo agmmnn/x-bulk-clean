@@ -18,8 +18,9 @@ X Bulk Clean is an open-source extension that runs 100% locally in your browser.
 WHAT YOU CAN CLEAN
 • Tweets — Scan your timeline and delete selected posts in bulk
 • Replies — Clean up replies only, or scan posts + replies in a single pass
-• Likes — Review and unlike old posts
 • Reposts — Undo retweets/reposts in bulk
+• Media — Preview thumbnails of your Photos and Videos and delete selected media posts in bulk
+• Likes — Review and unlike old posts
 • Following — Mass unfollow accounts, with filters for accounts that don't follow back or have no profile photo
 
 PREVIEW & SELECT BEFORE YOU DELETE
@@ -141,6 +142,7 @@ X Bulk Clean Contributors
 
 | Version | Date | Changes | Status |
 |---------|------|---------|--------|
+| 1.6.0 | 2026-11-27 | Added dedicated Media tab (Photos & Videos with visual thumbnails), full language-independent X support, reliable account detection with auto-retry and Check again button, `/reposts` & `/i/history/likes` support, and Following scan & UI fixes. | Released |
 | 1.5.2 | 2026-11-24 | Added Side Panel notice when X display language is not set to English (with quick link to X language settings) and documented the requirement in README. | Released |
 | 1.5.1 | 2026-11-24 | Minor Side Panel UI polish (compact Settings header & mascot sizing) and fixed Dark Mode mascot transparency. | Released |
 | 1.5.0 | 2026-11-24 | Direct Side Panel launch, unified 5-tab flow (added Likes), rich morphing profile card, live scan streaming, never-unfollow whitelist, theme switch (System/Light/Dark), bottom-sheet confirmation with Safe/Fast speed & auto-CSV backup, full-panel Settings, and SEO-optimized store metadata. | Released |

@@ -2,6 +2,18 @@
 
 All notable changes are documented here. Releases before `1.4.0` are not reconstructed in detail.
 
+## [1.6.0] - 2026-11-27 ✨
+
+### Added 🚀
+
+- 🖼️ **Media tab (Photos & Videos)**: Scan your X **Photos** (`?filter=photo`) and **Videos** (`?filter=video`) with visual thumbnail previews, delete selected photos in-place from the lightbox or delete video posts directly, with full CSV backup & Job History support.
+- 🌐 **Full multi-language X support**: Tweet/reply/media deletion, reply detection, profile stats, likes, reposts, and following scans now work across all X display languages (no longer requires English).
+
+### Fixed 🐛
+
+- 🔐 **Reliable account detection**: Fixed false "Sign in to X" prompts after logging in or reloading X by adding `__INITIAL_STATE__` & compact-layout detection, automatic hydration retries, smart tab selection, and a **Check again** button.
+- 🔁 **Updated X routes & UI polish**: Navigated Reposts to X's dedicated `/reposts` tab, recognized `/i/history/likes`, excluded "Who to follow" sidebar suggestions from Following scans, fixed horizontal bio overflow, fixed `Retry failed` button visibility when 0 items fail, and refreshed the Chrome Web Store review card.
+
 ## [1.5.2] - 2026-11-24 ✨
 
 - 🌐 Added a dismissable notice in the Side Panel when X's display language isn't set to English, with a one-click link to X language settings.
